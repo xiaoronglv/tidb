@@ -680,6 +680,7 @@ func (e *ErrorRate) Merge(rate *ErrorRate) {
 
 // Column represents a column histogram.
 type Column struct {
+	Sample *chunk.Column
 	Histogram
 	*CMSketch
 	PhysicalID int64
@@ -799,6 +800,7 @@ func (c *Column) GetColumnRowCount(sc *stmtctx.StatementContext, ranges []*range
 
 // Index represents an index histogram.
 type Index struct {
+	Sample *chunk.Column
 	Histogram
 	*CMSketch
 	ErrorRate
