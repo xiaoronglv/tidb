@@ -678,10 +678,16 @@ func (e *ErrorRate) Merge(rate *ErrorRate) {
 	e.ErrorTotal += rate.ErrorTotal
 }
 
+// SampleC represents the sample of a column
+type SampleC struct {
+	SID          int64
+	SampleColumn *chunk.Column
+}
+
 // Column represents a column histogram.
 type Column struct {
-	Sample *chunk.Column
 	Histogram
+	*SampleC //sample in one column
 	*CMSketch
 	PhysicalID int64
 	Count      int64
@@ -800,8 +806,8 @@ func (c *Column) GetColumnRowCount(sc *stmtctx.StatementContext, ranges []*range
 
 // Index represents an index histogram.
 type Index struct {
-	Sample *chunk.Column
 	Histogram
+	*SampleC
 	*CMSketch
 	ErrorRate
 	StatsVer       int64 // StatsVer is the version of the current stats, used to maintain compatibility

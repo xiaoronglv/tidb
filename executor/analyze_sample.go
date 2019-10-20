@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/cznic/mathutil"
 	"github.com/pingcap/errors"
@@ -14,7 +13,6 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/statistics"
 	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/logutil"
 	"go.uber.org/zap"
 )
@@ -24,9 +22,10 @@ import (
 // step2 复用现有的执行计划 Task(plannercore/)、analyzeTask、analyzeResult
 // step3 定义一个 worker 函数启动多个线程执行 sampleing 过程
 // AnalyzeSample 的 open 暂不实现
-
 // 触发的入口 (对应 AnalyzeExec 的 Next()，同时放在那里作为触发)
-func AnalyzeSample(e *AnalyzeExec, ctx context.Context, sampleSize uint64) error {
+
+// AnalyzeSample get the sample from AnalyzeExec task
+func AnalyzeSample(ctx context.Context, e *AnalyzeExec, sampleSize uint64) error {
 	// 获取表信息
 	// 定义 TaskCh、ResultCh
 	// build AnalyzeSampleExec(task,一个task对应一个exec)
@@ -74,8 +73,12 @@ func AnalyzeSample(e *AnalyzeExec, ctx context.Context, sampleSize uint64) error
 			result.job.Finish(true)
 			continue
 		}
+		fmt.Println("Result is: ", result.IsIndex)
 		// 处理结果
-		// tbl := statsHandle.GetTableStats()
+		err := statsHandle.UpdateSampleCache(GetInfoSchema(e.ctx), result.Sample, result.IsIndex, result.PhysicalTableID)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -85,6 +88,7 @@ type analyzeSampleTask struct {
 	job        *statistics.AnalyzeJob
 }
 
+// AnalyzeSampleExec is a executor used to sampling
 type AnalyzeSampleExec struct {
 	AnalyzeFastExec
 	sampleSize uint64
@@ -92,7 +96,7 @@ type AnalyzeSampleExec struct {
 
 type analyzeSampleResult struct {
 	PhysicalTableID int64
-	Sample          []*chunk.Column
+	Sample          []*statistics.SampleC
 	//Count           int64
 	IsIndex int
 	Err     error
@@ -147,6 +151,12 @@ func analyzeSampleWorker(taskCh <-chan *analyzeSampleTask, resultCh chan<- analy
 		if !ok {
 			break
 		}
+
+		//fmt
+		// fmt.Printf("task : \nPID: %v\ntblName: %v\n",
+		// 	task.sampleExec.physicalTableID,
+		// 	task.job.TableName)
+
 		task.job.Start()
 		task.sampleExec.job = task.job
 		for _, result := range analyzeSampleExec(task.sampleExec) {
@@ -173,7 +183,7 @@ func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
 		for i := hasPKInfo + len(exec.idxsInfo); i < len(sample); i++ {
 			idxResult := analyzeSampleResult{
 				PhysicalTableID: exec.physicalTableID,
-				Sample:          []*chunk.Column{sample[i]},
+				Sample:          []*statistics.SampleC{sample[i]},
 				IsIndex:         1,
 				job:             exec.job,
 			}
@@ -187,19 +197,19 @@ func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
 		job:             exec.job,
 	}
 	results = append(results, colResult)
-	return nil
+	return results
 }
 
 // 下面是 AnalyzeSampleExec 需要实现的一些接口函数 --> 对所有列或单个索引上的采样处理
 
 // 构建采样，需要将 AnalyzeResult 中 Sample 传进去
-func (e *AnalyzeSampleExec) buildSample() (sample []*chunk.Column, err error) {
+func (e *AnalyzeSampleExec) buildSample() (sample []*statistics.SampleC, err error) {
 	// 测试需要所以默认值为 1
-	if RandSeed == 1 {
-		e.randSeed = time.Now().UnixNano()
-	} else {
-		e.randSeed = RandSeed
-	}
+	// if RandSeed == 1 {
+	// 	e.randSeed = time.Now().UnixNano()
+	// } else {
+	// 	e.randSeed = RandSeed
+	// }
 	rander := rand.New(rand.NewSource(e.randSeed))
 
 	needRebuild, maxBuildTimes := true, 5
@@ -243,7 +253,7 @@ func (e *AnalyzeSampleExec) buildSample() (sample []*chunk.Column, err error) {
 	return e.runTasks()
 }
 
-func (e *AnalyzeSampleExec) runTasks() ([]*chunk.Column, error) {
+func (e *AnalyzeSampleExec) runTasks() ([]*statistics.SampleC, error) {
 	errs := make([]error, e.concurrency)
 	hasPKInfo := 0
 	if e.pkInfo != nil {
@@ -283,8 +293,11 @@ func (e *AnalyzeSampleExec) runTasks() ([]*chunk.Column, error) {
 		rowCount = mathutil.MinInt64(stats.GetTableStats(e.tblInfo).Count, rowCount)
 	}
 
+	//fmt
+	fmt.Println("sampleSize = ", e.sampleSize)
+
 	// 生成采样结果
-	samples := make([]*chunk.Column, length)
+	samples := make([]*statistics.SampleC, length)
 	for i := 0; i < length; i++ {
 		// 生成收集器属性
 		collector := e.collectors[i]
@@ -296,11 +309,11 @@ func (e *AnalyzeSampleExec) runTasks() ([]*chunk.Column, error) {
 		collector.TotalSize *= rowCount / int64(len(collector.Samples))
 
 		if i < hasPKInfo {
-			samples[i], err = e.buildICSample(e.collectors[i])
+			samples[i], err = e.buildICSample(e.pkInfo.ID, e.collectors[i])
 		} else if i < hasPKInfo+len(e.colsInfo) {
-			samples[i], err = e.buildICSample(e.collectors[i])
+			samples[i], err = e.buildICSample(e.colsInfo[i-hasPKInfo].ID, e.collectors[i])
 		} else {
-			samples[i], err = e.buildICSample(e.collectors[i])
+			samples[i], err = e.buildICSample(e.idxsInfo[i-hasPKInfo-len(e.colsInfo)].ID, e.collectors[i])
 		}
 		if err != nil {
 			return nil, err
@@ -309,17 +322,18 @@ func (e *AnalyzeSampleExec) runTasks() ([]*chunk.Column, error) {
 	return samples, nil
 }
 
-func (e *AnalyzeSampleExec) buildICSample(collector *statistics.SampleCollector) (*chunk.Column, error) {
+func (e *AnalyzeSampleExec) buildICSample(colID int64, collector *statistics.SampleCollector) (*statistics.SampleC, error) {
 	sc := e.ctx.GetSessionVars().StmtCtx
 	sampleItems := collector.Samples
 	err := statistics.SortSampleItems(sc, sampleItems)
 	if err != nil {
 		return nil, err
 	}
-	var sample *chunk.Column
+	var sample *statistics.SampleC
 	for i := 0; i < len(sampleItems); i++ {
-		sample.AppendBytes(sampleItems[i].Value.GetBytes())
+		sample.SampleColumn.AppendBytes(sampleItems[i].Value.GetBytes())
 	}
+	sample.SID = colID
 	return sample, nil
 }
 

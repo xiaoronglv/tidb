@@ -137,6 +137,37 @@ func DurationToTS(d time.Duration) uint64 {
 	return oracle.ComposeTS(d.Nanoseconds()/int64(time.Millisecond), 0)
 }
 
+// UpdateSampleCache updates the sample cache / A Newty
+func (h *Handle) UpdateSampleCache(is infoschema.InfoSchema, samples []*statistics.SampleC, isIndex int, physicalTblID int64) error {
+	h.mu.Lock()
+	table, ok := h.getTableByPhysicalID(is, physicalTblID)
+	h.mu.Unlock()
+	if !ok {
+		fmt.Println("NewtY: can not finc the table by PyID")
+	}
+
+	tableInfo := table.Meta()
+	tbl, err := h.tableStatsFromStorage(tableInfo, physicalTblID, false, nil)
+	if err != nil {
+		return err
+	}
+	if tbl == nil {
+		logutil.BgLogger().Debug("error occurred when read table stats", zap.String("table", tableInfo.Name.O), zap.Error(err))
+	}
+
+	// 将 sample 写入（确定 tbl.Columns 还是 tbl.Indexs 需要更新，并确定更新 map 的 key）
+	for _, sample := range samples {
+		if isIndex == 1 {
+			// idx
+			tbl.HistColl.Indices[sample.SID].SampleC = sample
+		} else {
+			// column
+			tbl.HistColl.Columns[sample.SID].SampleC = sample
+		}
+	}
+	return nil
+}
+
 // Update reads stats meta from store and updates the stats map.
 func (h *Handle) Update(is infoschema.InfoSchema) error {
 	lastVersion := h.LastUpdateVersion()
