@@ -137,7 +137,7 @@ func DurationToTS(d time.Duration) uint64 {
 	return oracle.ComposeTS(d.Nanoseconds()/int64(time.Millisecond), 0)
 }
 
-// UpdateSampleCache updates the sample cache / A Newty
+// GetTableByPID is a needed func
 func (h *Handle) GetTableByPID(is infoschema.InfoSchema, physicalTblID int64) table.Table {
 	h.mu.Lock()
 	table, ok := h.getTableByPhysicalID(is, physicalTblID)
