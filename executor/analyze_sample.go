@@ -11,52 +11,27 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/statistics"
 	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/util/logutil"
-	"go.uber.org/zap"
 )
 
-// step0 定义全局触发方法，相当于 executor 的 Next()，方便之后代码复用
-// step1 定义一个执行器
-// step2 复用现有的执行计划 Task(plannercore/)、analyzeTask、analyzeResult
-// step3 定义一个 worker 函数启动多个线程执行 sampleing 过程
-// AnalyzeSample 的 open 暂不实现
-// 触发的入口 (对应 AnalyzeExec 的 Next()，同时放在那里作为触发)
+// AnalyzeSample get the sample for the place using, it is for one table
+func AnalyzeSample(ctx sessionctx.Context, histColl *statistics.HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool) error {
 
-// AnalyzeSample get the sample from AnalyzeExec task
-func AnalyzeSample(ctx context.Context, e *AnalyzeExec, sampleSize uint64) error {
-	// 获取表信息
-	// 定义 TaskCh、ResultCh
-	// build AnalyzeSampleExec(task,一个task对应一个exec)
-	// 并发启(n)个 worker do Sampling
-	// res <-ResultCh (返回一整个表的 Result)
-	// 处理整合 res
-	// 更新 cache (statsHandle.Update(GetInfoSchema(e.ctx)))
-	// \---在 handle 中添加一个函数只做 cache(--statistics.Table) 的更新
+	taskCh := make(chan *analyzeSampleTask)
+	resultCh := make(chan analyzeSampleResult)
 
-	taskCh := make(chan *analyzeSampleTask, len(e.tasks))
-	resultCh := make(chan analyzeSampleResult, len(e.tasks))
-	for _, task := range e.tasks {
-		buildAnalyzeSampleTask(e, task, taskCh, sampleSize)
-	}
+	buildAnalyzeSampleTask(ctx, histColl, columnID, isIndex, sampleSize, fulltable, taskCh)
 
-	concurrency, err := getBuildStatsConcurrency(e.ctx)
-	if err != nil {
-		return err
-	}
-
-	e.wg.Add(concurrency)
+	// 采样的并发度写死为 1
+	concurrency := 1
 	for i := 0; i < concurrency; i++ {
 		go analyzeSampleWorker(taskCh, resultCh, i == 0)
-	}
-	for _, task := range e.tasks {
-		statistics.AddNewAnalyzeJob(task.job)
 	}
 	close(taskCh)
 
 	// 接收结果
-	statsHandle := domain.GetDomain(e.ctx).StatsHandle()
 	panicCnt := 0
 	for panicCnt < concurrency {
 		result, ok := <-resultCh
@@ -64,20 +39,19 @@ func AnalyzeSample(ctx context.Context, e *AnalyzeExec, sampleSize uint64) error
 			break
 		}
 		if result.Err != nil {
-			err = result.Err
-			if err == errAnalyzeWorkerPanic {
+			if result.Err == errAnalyzeWorkerPanic {
 				panicCnt++
-			} else {
-				logutil.Logger(ctx).Error("analyze failed", zap.Error(err))
 			}
-			result.job.Finish(true)
 			continue
 		}
-		fmt.Println("Result is: ", result.IsIndex)
-		// 处理结果
-		err := statsHandle.UpdateSampleCache(GetInfoSchema(e.ctx), result.Sample, result.IsIndex, result.PhysicalTableID)
-		if err != nil {
-			return err
+
+		// 处理结果, 直接写到 histColl 中
+		if result.IsIndex == 1 {
+			histColl.Indices[result.Sample[0].SID].SampleC = result.Sample[0]
+		} else {
+			for _, samplec := range result.Sample {
+				histColl.Columns[columnID].SampleC = samplec
+			}
 		}
 	}
 	return nil
@@ -85,7 +59,7 @@ func AnalyzeSample(ctx context.Context, e *AnalyzeExec, sampleSize uint64) error
 
 type analyzeSampleTask struct {
 	sampleExec *AnalyzeSampleExec
-	job        *statistics.AnalyzeJob
+	//job        *statistics.AnalyzeJob
 }
 
 // AnalyzeSampleExec is a executor used to sampling
@@ -105,40 +79,41 @@ type analyzeSampleResult struct {
 
 // build 一个 AnalyzeSampleExec，对应于 executor/builder 中的工作
 // 并且将新的 analyzeSampleTask 装入其中
-func buildAnalyzeSampleTask(e *AnalyzeExec, task *analyzeTask, taskCh chan *analyzeSampleTask, sampleSize uint64) {
-	// 对应每个 A 的 task，建立一个 analyzeSampleTask
-	// taskCh <-analyzeSampleTask
+func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *statistics.HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool, taskCh chan *analyzeSampleTask) {
+	statsHandle := domain.GetDomain(ctx).StatsHandle()
+	physicalID := histColl.PhysicalID
+	table := statsHandle.GetTableByPID(GetInfoSchema(ctx), physicalID)
+	tableInfo := table.Meta()
+	cloumsInfos := tableInfo.Columns
+	indexInfos := tableInfo.Indices
+	pkInfo := tableInfo.GetPkColInfo()
+	concurrency := 1
 
-	var aspe AnalyzeSampleExec
-	aspe.sampleSize = sampleSize
-	aspe.ctx = e.ctx
-	aspe.wg = &sync.WaitGroup{}
-
-	// 一个 idx 对应一个任务，一个表的所有 col 对应一个任务
-	switch task.taskType {
-	case colTask:
-		aspe.colsInfo = task.colExec.colsInfo
-		aspe.concurrency = task.colExec.concurrency
-		aspe.physicalTableID = task.colExec.physicalTableID
-	case idxTask:
-		aspe.idxsInfo = []*model.IndexInfo{task.idxExec.idxInfo}
-		aspe.concurrency = task.idxExec.concurrency
-	case fastTask:
-		aspe.colsInfo = task.fastExec.colsInfo
-		aspe.idxsInfo = task.fastExec.idxsInfo
-		aspe.pkInfo = task.fastExec.pkInfo
-		aspe.tblInfo = task.fastExec.tblInfo
-	case pkIncrementalTask, idxIncrementalTask:
-		fmt.Println("do nothing for Incremental")
+	if fulltable {
+		// TODO
+		return
 	}
 
-	taskCh <- &analyzeSampleTask{
-		sampleExec: &aspe,
-		job: &statistics.AnalyzeJob{
-			DBName:        task.job.DBName,
-			TableName:     task.job.TableName,
-			PartitionName: task.job.PartitionName,
-			JobInfo:       "sample analyze"},
+	var sampleExec AnalyzeSampleExec
+	sampleExec.ctx = ctx
+	sampleExec.physicalTableID = physicalID
+	sampleExec.tblInfo = tableInfo
+	sampleExec.concurrency = concurrency
+	sampleExec.wg = &sync.WaitGroup{}
+	sampleExec.sampleSize = sampleSize
+	if isIndex {
+		// 只做单个对 idx 的任务
+		sampleExec.idxsInfo = []*model.IndexInfo{indexInfos[columnID]}
+		taskCh <- &analyzeSampleTask{
+			sampleExec: &sampleExec,
+		}
+	} else {
+		// 做单个对表上所有列的任务
+		sampleExec.colsInfo = cloumsInfos
+		sampleExec.pkInfo = pkInfo
+		taskCh <- &analyzeSampleTask{
+			sampleExec: &sampleExec,
+		}
 	}
 }
 
@@ -151,21 +126,16 @@ func analyzeSampleWorker(taskCh <-chan *analyzeSampleTask, resultCh chan<- analy
 		if !ok {
 			break
 		}
+		//task.job.Start()
+		//task.sampleExec.job = task.job
 
-		//fmt
-		// fmt.Printf("task : \nPID: %v\ntblName: %v\n",
-		// 	task.sampleExec.physicalTableID,
-		// 	task.job.TableName)
-
-		task.job.Start()
-		task.sampleExec.job = task.job
 		for _, result := range analyzeSampleExec(task.sampleExec) {
 			resultCh <- result
 		}
 	}
 }
 
-//---- 🐵----//
+// -----
 // 处理单个表的采样，返回所有列上的统计信息
 // 由于对于一个表的采样可能是idx采样和colm的采样，所以可能需要返回 2 个 analyzeResult
 func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
@@ -190,17 +160,18 @@ func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
 			results = append(results, idxResult)
 		}
 	}
+
 	// 处理列上的采集
-	colResult := analyzeSampleResult{
-		PhysicalTableID: exec.physicalTableID,
-		Sample:          sample[:hasPKInfo+len(exec.idxsInfo)],
-		job:             exec.job,
+	if len(exec.colsInfo) > 0 {
+		colResult := analyzeSampleResult{
+			PhysicalTableID: exec.physicalTableID,
+			Sample:          sample[:hasPKInfo+len(exec.idxsInfo)],
+			job:             exec.job,
+		}
+		results = append(results, colResult)
 	}
-	results = append(results, colResult)
 	return results
 }
-
-// 下面是 AnalyzeSampleExec 需要实现的一些接口函数 --> 对所有列或单个索引上的采样处理
 
 // 构建采样，需要将 AnalyzeResult 中 Sample 传进去
 func (e *AnalyzeSampleExec) buildSample() (sample []*statistics.SampleC, err error) {
@@ -210,6 +181,7 @@ func (e *AnalyzeSampleExec) buildSample() (sample []*statistics.SampleC, err err
 	// } else {
 	// 	e.randSeed = RandSeed
 	// }
+	e.randSeed = 1
 	rander := rand.New(rand.NewSource(e.randSeed))
 
 	needRebuild, maxBuildTimes := true, 5
@@ -282,7 +254,6 @@ func (e *AnalyzeSampleExec) runTasks() ([]*statistics.SampleC, error) {
 	}
 
 	_, err := e.handleScanTasks(bo)
-	// fastAnalyzeHistogramScanKeys.Observe(float64(scanKeysSize))
 	if err != nil {
 		return nil, err
 	}
