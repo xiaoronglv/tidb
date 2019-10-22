@@ -3,7 +3,6 @@ package sampling
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -75,7 +74,6 @@ var errAnalyzeSamplingWorkerPanic = errors.New("analyze worker panic")
 
 type analyzeSampleTask struct {
 	sampleExec *AnalyzeSampleExec
-	//job        *statistics.AnalyzeJob
 }
 
 // AnalyzeSampleExec is a executor used to sampling
@@ -96,8 +94,7 @@ type AnalyzeSampleExec struct {
 	scanTasks       []*tikv.KeyLocation
 	collectors      []*statistics.SampleCollector
 	randSeed        int64
-	//job             *AnalyzeJob
-	sampleSize uint64
+	sampleSize      uint64
 }
 
 // AnalyzeFastTask is the task use to sample from kv
@@ -111,10 +108,8 @@ type AnalyzeFastTask struct {
 type analyzeSampleResult struct {
 	PhysicalTableID int64
 	Sample          []*statistics.SampleC
-	//Count           int64
-	IsIndex int
-	Err     error
-	//job     *AnalyzeJob
+	IsIndex         int
+	Err             error
 }
 
 func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *statistics.HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool, taskCh chan *analyzeSampleTask) {
@@ -297,9 +292,6 @@ func (e *AnalyzeSampleExec) runTasks() ([]*statistics.SampleC, error) {
 	if stats.Lease() > 0 {
 		rowCount = mathutil.MinInt64(stats.GetTableStats(e.tblInfo).Count, rowCount)
 	}
-
-	//fmt
-	fmt.Println("sampleSize = ", e.sampleSize)
 
 	// 生成采样结果
 	samples := make([]*statistics.SampleC, length)
@@ -743,4 +735,8 @@ func GetInfoSchema(ctx sessionctx.Context) infoschema.InfoSchema {
 		is = sessVar.TxnCtx.InfoSchema.(infoschema.InfoSchema)
 	}
 	return is
+}
+
+func init() {
+	statistics.Ana = AnalyzeSample
 }

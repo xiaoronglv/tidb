@@ -143,6 +143,9 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 	return nil
 }
 
+// Ana is the sampling enter
+var Ana func(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool) error
+
 // Selectivity is a function calculate the selectivity of the expressions.
 // The definition of selectivity is (row count after filter / row count before filter).
 // And exprs must be CNF now, in other words, `exprs[0] and exprs[1] and ... and exprs[len - 1]` should be held when you call this.
@@ -157,6 +160,12 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	if len(exprs) > 63 || (len(coll.Columns) == 0 && len(coll.Indices) == 0) {
 		return pseudoSelectivity(coll, exprs), nil, nil
 	}
+
+	// err := Ana(ctx, coll, 0, false, 5, false)
+	// if err != nil {
+	// 	return 0.1, nil, err
+	//}
+
 	ret := 1.0
 	var nodes []*StatsNode
 	sc := ctx.GetSessionVars().StmtCtx
