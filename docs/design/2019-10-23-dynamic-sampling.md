@@ -1,8 +1,8 @@
 
 # Proposal: Optimizer Dynamic Sampling
 
-- Authors: [Jian Yang]([https://github.com/PiotrNewt](https://github.com/PiotrNewt)) and [Ryan Lv]([https://github.com/xiaoronglv](https://github.com/xiaoronglv))
-- Reviewer: [Haibin Xie]([https://github.com/lamxTyler](https://github.com/lamxTyler))
+- Authors: [Jian Yang](https://github.com/PiotrNewt) and [Ryan Lv](https://github.com/xiaoronglv)
+- Reviewer: [Haibin Xie]([https://github.com/lamxTyler)
 - Last updated:  2019-10-23
 - Discussion at: [Google Doc](https://docs.google.com/document/d/18RcL3PmuBiCP463cUZ-WRYeQCT0YS4hj50mOdD2G6w0/)
 
