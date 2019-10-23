@@ -1,14 +1,10 @@
 
 # Proposal: Optimizer Dynamic Sampling
 
-{{TOC}}
-
 - Authors: [Jian Yang]([https://github.com/PiotrNewt](https://github.com/PiotrNewt)) and [Ryan Lv]([https://github.com/xiaoronglv](https://github.com/xiaoronglv))
 - Reviewer: [Haibin Xie]([https://github.com/lamxTyler](https://github.com/lamxTyler))
 - Last updated:  2019-10-23
 - Discussion at: [Google Doc](https://docs.google.com/document/d/18RcL3PmuBiCP463cUZ-WRYeQCT0YS4hj50mOdD2G6w0/)
-
-
 
 ## Abstract
 
@@ -16,7 +12,7 @@ Dynamic sampling provides the optimizer with statistics through sampling.
 
 ## Background
 
-Statistics is the heart of optimizer, TiDB uses two strategies to maintain it. First, it can be triggered by  the SQL statement table `analyze table`. Second, TiDB automatically triggers the analyze table when some conditions are met[^[TiDB: Statistics](https://tidb.ebh.net/myroom/mycourse/438387.html)].
+Statistics is the heart of optimizer, TiDB uses two strategies to maintain it. First, it can be triggered by  the SQL statement table `analyze table`. Second, TiDB automatically triggers the analyze table when some conditions are met[1].
 
 Histogram and Count Min Sketch have been introduced in TiDB as a mechanism to help the optimizer to choose the query plan.
 
@@ -46,7 +42,7 @@ Histogram and Count Min Sketch have been introduced in TiDB as a mechanism to he
 
 However, histogram and count-min sketch may be missing or stale, take the following edge cases as examples:
 
-- A new table may not get a chance to be analyzed, therefore optimizer has to use default statistic values[^[TiDB Source code: default statistic value](https://github.com/pingcap/tidb/blob/6d51ad33fd861c39b64a2f5d99db045d1fa0fb1d/statistics/table.go#L249-L251)], which are typically not accurate.
+- A new table may not get a chance to be analyzed, therefore optimizer has to use default statistic values[2], which are typically not accurate.
 - More than 1/10 rows of a table have been updated/inserted/deleted. A `analyze table` is waiting to be performed.
 
 Dynamic sampling is a perfect complement to cover those edge cases. 
@@ -68,7 +64,7 @@ Dynamic sampling is fit in the following scenarios:
 
 2. More than 1/10 rows have been updated/inserted. Statistics are stale, and the table is waiting to be analyzed. During this time window, it doesn't make sense to use stale statistics.
 
-3. The Column in an expression is not isolated. "Isolating" the column means it should not be part of an expression or be inside a function in the query. [^ Book: High Performance MySQL: Chapter5. Index for High Performance P159]  
+3. The Column in an expression is not isolated. "Isolating" the column means it should not be part of an expression or be inside a function in the query. [3]  
 
 	For example, the following query can't take advantage of histograms or Count-Min sketches.
 
@@ -81,10 +77,10 @@ Dynamic sampling is fit in the following scenarios:
 	// example2: column is in the function
 	select * 
 	from employees 
-	where md5(emp_no) = d89f3a35931c;
+	where mod(emp_no) = 3;
 	```
 
-4. Expressions in a query contain correlated columns[^[Oracle: Dynamic sampling and its impact on the Optimizer](https://blogs.oracle.com/optimizer/dynamic-sampling-and-its-impact-on-the-optimizer)]. Consider the following query:
+4. Expressions in a query contain correlated columns[4]. Consider the following query:
 
 	```
 	select * 
@@ -161,3 +157,13 @@ Break down this feature into more concreted tasks and assign them to the followi
 ### When to do it?
 
 TiDB Hackathon. ( From 2019-10-25 to 2019-10-26  Shanghai Time)
+
+---
+
+1. [TiDB: Statistics](https://tidb.ebh.net/myroom/mycourse/438387.html)
+
+2. [TiDB Source code: default statistic value](https://github.com/pingcap/tidb/blob/6d51ad33fd861c39b64a2f5d99db045d1fa0fb1d/statistics/table.go#L249-L251)
+
+3. Book: High Performance MySQL: Chapter5. Index for High Performance P159
+
+4. [Oracle: Dynamic sampling and its impact on the Optimizer](https://blogs.oracle.com/optimizer/dynamic-sampling-and-its-impact-on-the-optimizer)
