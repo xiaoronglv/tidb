@@ -33,6 +33,7 @@ func AnalyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 	taskCh := make(chan *analyzeSampleTask, 3)
 	resultCh := make(chan analyzeSampleResult, 3)
 
+	//If we need to improve the concurrency of work, we can modify it here
 	go func() {
 		for {
 			task, ok := <-taskCh
@@ -45,18 +46,17 @@ func AnalyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 		}
 		close(resultCh)
 	}()
-	// 对于传入的参数，建立采样 tasks
+
+	// For the incoming parameters, create sampling tasks
 	buildAnalyzeSampleTask(ctx, histColl, columnID, isIndex, sampleSize, fulltable, taskCh)
 	close(taskCh)
 
-	//go analyzeSampleWorker(taskCh, resultCh, i == 0, wg)
-
-	// 接收结果
+	// Get Reuslts
 	panicCnt := 0
 	for panicCnt < 1 {
 		result, ok := <-resultCh
 		if !ok {
-			continue
+			break
 		}
 		if result.Err != nil {
 			if result.Err == errAnalyzeSamplingWorkerPanic {
@@ -65,14 +65,13 @@ func AnalyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 			break
 		}
 
-		// 处理结果, 直接写到 histColl 中
+		// Process the result, give the pointer of the sample to A
 		if result.IsIndex == 1 {
 			histColl.Indices[result.Sample[0].SID].SampleC = result.Sample[0]
 		} else {
 			for _, samplec := range result.Sample {
 				histColl.Columns[samplec.SID].SampleC = samplec
 			}
-			return nil
 		}
 	}
 	return nil
@@ -138,6 +137,7 @@ func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID
 
 	if fulltable {
 		// TODO
+		// Sampling for full table
 		return
 	}
 
@@ -149,13 +149,13 @@ func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID
 	sampleExec.wg = &sync.WaitGroup{}
 	sampleExec.sampleSize = sampleSize
 	if isIndex {
-		// 只做单个对 idx 的任务
+		// Do one task for one index
 		sampleExec.idxsInfo = []*model.IndexInfo{indexInfos[columnID]}
 		taskCh <- &analyzeSampleTask{
 			sampleExec: &sampleExec,
 		}
 	} else {
-		// 做单个对表上所有列的任务
+		// Do one task for all over the columns
 		sampleExec.pkInfo = pkInfo
 		if pkInfo != nil {
 			sampleExec.colsInfo = cloumsInfos[1:]
@@ -169,25 +169,12 @@ func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID
 	return
 }
 
-// analyzeWorker 负责处理 TaskCh 中的所有 analyzeTask
-// func analyzeSampleWorker(taskCh <-chan *analyzeSampleTask, resultCh chan<- analyzeSampleResult, isCloseChanThread bool) {
-// 	for {
-// 		task, ok := <-taskCh
-// 		if !ok {
-// 			break
-// 		}
-// 		for _, result := range analyzeSampleExec(task.sampleExec) {
-// 			resultCh <- result
-// 		}
-// 	}
-// }
-
-// -----
-// 处理单个表的采样，返回所有列上的统计信息
-// 由于对于一个表的采样可能是idx采样和colm的采样，所以可能需要返回多 个 analyzeResult
+// analyzeSampleExec process samples from a single table, returning statistics on all columns
+// Since the sampling for one table may be the sampling of idx samples and colm
+// it may be necessary to return multiple analyzeResults.
 func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
 	sample, err := exec.buildSample()
-	//-----//
+
 	if err != nil {
 		return []analyzeSampleResult{{Err: err}}
 	}
@@ -196,7 +183,7 @@ func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
 	if exec.pkInfo != nil {
 		hasPKInfo = 1
 	}
-	// 处理存在索引的情况
+	// Handling the existence of an index
 	if len(exec.idxsInfo) > 0 {
 		for i := hasPKInfo + len(exec.idxsInfo); i < len(sample); i++ {
 			idxResult := analyzeSampleResult{
@@ -208,18 +195,18 @@ func analyzeSampleExec(exec *AnalyzeSampleExec) []analyzeSampleResult {
 		}
 	}
 
-	// 处理列上的采集
+	// Handling the sampling on the column
 	if len(exec.colsInfo) > 0 {
 		colResult := analyzeSampleResult{
 			PhysicalTableID: exec.physicalTableID,
-			Sample:          sample[:hasPKInfo+len(exec.idxsInfo)],
+			Sample:          sample[:hasPKInfo+len(exec.colsInfo)],
 		}
 		results = append(results, colResult)
 	}
 	return results
 }
 
-// 构建采样，需要将 AnalyzeResult 中 Sample 传进去
+// buildSample is enter of sampling for single task
 func (e *AnalyzeSampleExec) buildSample() (sample []*SampleC, err error) {
 	if RandSeed == 1 {
 		e.randSeed = time.Now().UnixNano()
@@ -243,9 +230,9 @@ func (e *AnalyzeSampleExec) buildSample() (sample []*SampleC, err error) {
 		return nil, errors.Errorf(errMsg, maxBuildTimes)
 	}
 
-	//defer e.job.Update(int64(e.rowCount))
-
-	// 如果表的总行数小于样本量的2倍,直接全表扫描
+	// If the total number of rows in the table is less than 2 times the sample size
+	// do full table scan
+	// TODO: Maybe there is a bug（e.rowCount == 0）
 	if e.rowCount < e.sampleSize*2 {
 		for _, task := range e.sampTasks {
 			e.scanTasks = append(e.scanTasks, task.Location)
@@ -255,7 +242,7 @@ func (e *AnalyzeSampleExec) buildSample() (sample []*SampleC, err error) {
 		return e.runTasks()
 	}
 
-	// 生成样本长度个随机数
+	// Generate n random numbers, n is the sample length
 	randPos := make([]uint64, 0, e.sampleSize+1)
 	for i := 0; i < int(e.sampleSize); i++ {
 		randPos = append(randPos, uint64(rander.Int63n(int64(e.rowCount))))
@@ -307,10 +294,13 @@ func (e *AnalyzeSampleExec) runTasks() ([]*SampleC, error) {
 
 	rowCount := int64(e.rowCount)
 
-	// 生成采样结果
+	// Debug
+	// Can be used to judge the system table
+	// fmt.Printf("--%v : %v--\n", e.tblInfo.Name, e.physicalTableID)
+
+	// Generate sampling results
 	samples := make([]*SampleC, length)
 	for i := 0; i < length; i++ {
-		// 生成收集器属性
 		collector := e.collectors[i]
 		collector.Samples = collector.Samples[:e.sampCursor]
 		sort.Slice(collector.Samples, func(i, j int) bool { return collector.Samples[i].RowID < collector.Samples[j].RowID })
@@ -323,6 +313,9 @@ func (e *AnalyzeSampleExec) runTasks() ([]*SampleC, error) {
 		}
 
 		collector.TotalSize *= rowCount / int64(len(collector.Samples))
+
+		// Debug
+		// fmt.Printf("-col = %v\n", i)
 
 		if i < hasPKInfo {
 			samples[i], err = e.buildICSample(e.pkInfo.ID, e.collectors[i])
@@ -350,7 +343,6 @@ func (e *AnalyzeSampleExec) buildICSample(colID int64, collector *SampleCollecto
 		cc.AppendBytes(sampleItems[i].Value.GetBytes())
 		fmt.Println(sampleItems[i].Value)
 	}
-	fmt.Println("---tableName = ", e.tblInfo.Name)
 	return &SampleC{
 		SID:          colID,
 		SampleColumn: &cc,

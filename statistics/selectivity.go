@@ -14,7 +14,6 @@
 package statistics
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/pingcap/errors"
@@ -144,16 +143,13 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 	return nil
 }
 
-// Ana is the sampling enter
-var Ana func(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool) error
-
 // Selectivity is a function calculate the selectivity of the expressions.
 // The definition of selectivity is (row count after filter / row count before filter).
 // And exprs must be CNF now, in other words, `exprs[0] and exprs[1] and ... and exprs[len - 1]` should be held when you call this.
 // Currently the time complexity is o(n^2).
 func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Expression) (float64, []*StatsNode, error) {
 	// If table's count is zero or conditions are empty, we should return 100% selectivity.
-	if coll.Count == 0 || len(exprs) <= 2 {
+	if coll.Count == 0 || len(exprs) == 2 {
 		return 1, nil, nil
 	}
 
@@ -163,8 +159,7 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return pseudoSelectivity(coll, exprs), nil, nil
 	}
 
-	AnalyzeSample(ctx, coll, 1, false, 3, false)
-	fmt.Println("完成")
+	//AnalyzeSample(ctx, coll, 1, false, 3, false)
 
 	ret := 1.0
 	var nodes []*StatsNode
