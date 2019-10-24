@@ -163,6 +163,9 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	if len(exprs) > 63 || (len(coll.Columns) == 0 && len(coll.Indices) == 0) {
 		return pseudoSelectivity(coll, exprs), nil, nil
 	}
+
+	//AnalyzeSample(ctx, coll, 1, false, 3, false)
+
 	ret := 1.0
 	var nodes []*StatsNode
 	sc := ctx.GetSessionVars().StmtCtx
