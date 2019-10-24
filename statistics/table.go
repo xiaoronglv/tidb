@@ -484,6 +484,32 @@ func (coll *HistColl) getIndexRowCount(sc *stmtctx.StatementContext, idxID int64
 	return totalCount, nil
 }
 
+// IsMissing returns true when any column or index is missing histogram or count min sketch.
+func (coll *HistColl) IsMissing() bool {
+	if coll.Columns == nil || coll.Indices == nil {
+		return true
+	}
+	for _, column := range coll.Columns {
+		if column.Histogram == nil || column.CMSketch == nil {
+			return true
+		}
+	}
+
+	for _, index := range coll.Indices {
+		if index.Histogram == nil || index.CMSketch == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (coll *HistColl) IsStale() bool {
+	if coll.Count != 0 && float64(coll.ModifyCount)/float64(coll.Count) >= 0.1 {
+		return true
+	}
+
+	return false
+}
 const fakePhysicalID int64 = -1
 
 // PseudoTable creates a pseudo table statistics.

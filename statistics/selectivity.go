@@ -14,6 +14,7 @@
 package statistics
 
 import (
+	"github.com/pingcap/tidb/util/chunk"
 	"math"
 
 	"github.com/pingcap/errors"
@@ -152,6 +153,11 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	if coll.Count == 0 || len(exprs) == 0 {
 		return 1, nil, nil
 	}
+
+	if coll.IsMissing() || coll.IsStale() {
+		return getSelectivityBySample(ctx, exprs, coll), nil, nil
+	}
+
 	// TODO: If len(exprs) is bigger than 63, we could use bitset structure to replace the int64.
 	// This will simplify some code and speed up if we use this rather than a boolean slice.
 	if len(exprs) > 63 || (len(coll.Columns) == 0 && len(coll.Indices) == 0) {
@@ -257,6 +263,32 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		ret *= selectionFactor
 	}
 	return ret, nodes, nil
+}
+
+// getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
+func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) (float64) {
+	var err error
+	sampleChunk := coll.GetSample()  TODO: 调用杨键的方法，他目前还没有写完。
+	totalCount :=  sampleChunk.NumRows()
+
+	if totalCount == 0 {
+		return 1
+	}
+
+	results :=  make([]bool, 0, totalCount)
+	results, err = expression.VectorizedFilter( ctx, exprs, chunk.NewIterator4Chunk(sampleChunk), results)
+	if err != nil  {
+		return 1
+	}
+
+	var selectedCount float64  = 0
+	for _, result := range results {
+		if result {
+			selectedCount += 1
+		}
+	}
+
+	return selectedCount / float64(totalCount)
 }
 
 func getMaskAndRanges(ctx sessionctx.Context, exprs []expression.Expression, rangeType ranger.RangeType,
