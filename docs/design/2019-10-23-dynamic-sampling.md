@@ -77,7 +77,7 @@ Dynamic sampling is fit in the following scenarios:
 	// example2: column is in the function
 	select * 
 	from employees 
-	where mod(emp_no) = 3;
+	where mod(emp_no, 10) = 3;
 	```
 
 4. Expressions in a query contain correlated columns[4]. Consider the following query:
