@@ -162,10 +162,16 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 
 	// Just for Debug , it is triggered when ID is 47
 	// ID 47 is tbl(employees)'ID in my Mac
+	// You can use sampling func like:
 	if coll.PhysicalID == 47 {
-		AnalyzeSample(ctx, coll, 1, false, 10000, false)
-		myChunk := coll.GetChunkOfSample()
-		fmt.Println(myChunk.Capacity())
+		err := AnalyzeSampleForColumns(ctx, coll, 10000)
+		if err != nil {
+			// do something with error, like:
+			return 0.1, nil, err
+		}
+		sampleChunk := coll.GetChunkOfSample()
+		// do something with sample(chunk), like:
+		fmt.Println(sampleChunk.Capacity())
 	}
 
 	ret := 1.0

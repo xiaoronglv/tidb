@@ -41,6 +41,7 @@ func (coll *HistColl) GetChunkOfSample() *chunk.Chunk {
 	for i, key := range mapKey {
 		chunk.SetCol(int(i), coll.Columns[key].SampleC.SampleColumn)
 	}
+
 	// Just for debug --> order of the Columns
 	for _, key := range mapKey {
 		fmt.Printf("%v | ", coll.Columns[key].Info.Name.String())
@@ -48,8 +49,23 @@ func (coll *HistColl) GetChunkOfSample() *chunk.Chunk {
 	return chunk
 }
 
+// AnalyzeSampleForColumns gets sample for all columns
+func AnalyzeSampleForColumns(ctx sessionctx.Context, histColl *HistColl, sampSize uint64) error {
+	return analyzeSample(ctx, histColl, -1, false, sampSize, false)
+}
+
+// AnalyzeSampleForIndex gets sample for one index
+func AnalyzeSampleForIndex(ctx sessionctx.Context, histColl *HistColl, sampSize uint64, idxID int64) error {
+	return analyzeSample(ctx, histColl, idxID, true, sampSize, false)
+}
+
+// AnalyzeSampleFullTable gets sample for a table, include all columns and indies
+func AnalyzeSampleFullTable(ctx sessionctx.Context, histColl *HistColl, sampSize uint64) error {
+	return analyzeSample(ctx, histColl, -1, false, sampSize, true)
+}
+
 // AnalyzeSample get the sample for the place using, it is for one table
-func AnalyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool) error {
+func analyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool) error {
 
 	taskCh := make(chan *analyzeSampleTask, 3)
 	resultCh := make(chan analyzeSampleResult, 3)
