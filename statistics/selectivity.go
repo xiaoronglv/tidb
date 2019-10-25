@@ -14,15 +14,18 @@
 package statistics
 
 import (
-	"github.com/pingcap/tidb/util/chunk"
-	"fmt"
 	"math"
+
+	"github.com/pingcap/tidb/util/chunk"
+
+	"fmt"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/ranger"
 )
@@ -151,11 +154,24 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 // Currently the time complexity is o(n^2).
 func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Expression) (float64, []*StatsNode, error) {
 	// If table's count is zero or conditions are empty, we should return 100% selectivity.
-	if coll.Count == 0 || len(exprs) == 0 {
+	if coll.Count == 0 || len(exprs) <= 2 {
 		return 1, nil, nil
 	}
 
-	if coll.IsMissing() || coll.IsStale() {
+	//if coll.IsMissing() || coll.IsStale() {
+	//	return getSelectivityBySample(ctx, exprs, coll), nil, nil
+	//}
+
+	physicalID := coll.PhysicalID
+	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
+		TableByID(id int64) (table.Table, bool)
+	})
+	table, _ := is.TableByID(physicalID)
+	tableInfo := table.Meta()
+	// fmt.Printf(" %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
+
+	if tableInfo.Name.O == "employees" {
+		fmt.Println("I am going to dive into getSelectivityBySample")
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
 
@@ -163,20 +179,6 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	// This will simplify some code and speed up if we use this rather than a boolean slice.
 	if len(exprs) > 63 || (len(coll.Columns) == 0 && len(coll.Indices) == 0) {
 		return pseudoSelectivity(coll, exprs), nil, nil
-	}
-
-	// Just for Debug , it is triggered when ID is 47
-	// ID 47 is tbl(employees)'ID in my Mac
-	// You can use sampling func like:
-	if coll.PhysicalID == 47 {
-		err := AnalyzeSampleForColumns(ctx, coll, 10000)
-		if err != nil {
-			// do something with error, like:
-			return 0.1, nil, err
-		}
-		sampleChunk := coll.GetChunkOfSample()
-		// do something with sample(chunk), like:
-		fmt.Println(sampleChunk.Capacity())
 	}
 
 	ret := 1.0
@@ -282,25 +284,61 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 }
 
 // getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
-func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) (float64) {
+func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
 	var err error
-	sampleChunk := coll.GetSample()  TODO: 调用杨键的方法，他目前还没有写完。
-	totalCount :=  sampleChunk.NumRows()
+	AnalyzeSampleForColumns(ctx, coll, 3)
+	sampleChunk := coll.GetChunkOfSample()
+	totalCount := sampleChunk.NumRows()
 
 	if totalCount == 0 {
 		return 1
 	}
 
-	results :=  make([]bool, 0, totalCount)
-	results, err = expression.VectorizedFilter( ctx, exprs, chunk.NewIterator4Chunk(sampleChunk), results)
-	if err != nil  {
+	//physicalID := coll.PhysicalID
+	//is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
+	//	TableByID(id int64) (table.Table, bool)
+	//})
+	//table, _ := is.TableByID(physicalID)
+	//tableInfo := table.Meta()
+	//fmt.Printf(" %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
+
+	// schema := expression.TableInfo2Schema(ctx, tableInfo)
+
+	//for _, chunkColumnPtr := range sampleChunk.
+	//schema := &expression.
+
+	///////////////////////////////
+
+	// schemaColumns := []*expression.Column{}
+
+	// for _, statisticColumn := range coll.Columns { // sc: statistics.Column
+	// 	 offset := statisticColumn.Info.Offset + 1
+	// 	expressionColumn := &expression.Column{
+	// 		UniqueID: int64(offset+1),
+	// 		Index: offset,
+	// 	}
+	// 	schemaColumns = append(schemaColumns, expressionColumn)
+	// }
+
+	// schema := &expression.Schema{Columns: schemaColumns}
+
+	// schema := &expression.Schema{}
+	// newExprs := []expression.Expression{}
+
+	// for _, expr := range exprs {
+	// 	newSf, _ := expr.ResolveIndices(schema)
+	// 	newExprs = append(newExprs, newSf)
+	// }
+	results := make([]bool, 0, totalCount)
+	results, err = expression.VectorizedFilter(ctx, exprs, chunk.NewIterator4Chunk(sampleChunk), results)
+	if err != nil {
 		return 1
 	}
 
-	var selectedCount float64  = 0
+	var selectedCount float64
 	for _, result := range results {
 		if result {
-			selectedCount += 1
+			selectedCount++
 		}
 	}
 

@@ -486,17 +486,17 @@ func (coll *HistColl) getIndexRowCount(sc *stmtctx.StatementContext, idxID int64
 
 // IsMissing returns true when any column or index is missing histogram or count min sketch.
 func (coll *HistColl) IsMissing() bool {
-	if coll.Columns == nil || coll.Indices == nil {
+	if len(coll.Columns) == 0 || len(coll.Indices) == 0 {
 		return true
 	}
 	for _, column := range coll.Columns {
-		if column.Histogram == nil || column.CMSketch == nil {
+		if len(column.Histogram.Buckets) == 0 || column.CMSketch == nil {
 			return true
 		}
 	}
 
 	for _, index := range coll.Indices {
-		if index.Histogram == nil || index.CMSketch == nil {
+		if len(index.Histogram.Buckets) == 0 || index.CMSketch == nil {
 			return true
 		}
 	}
