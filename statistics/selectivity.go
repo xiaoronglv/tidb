@@ -14,6 +14,7 @@
 package statistics
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/pingcap/errors"
@@ -149,7 +150,7 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 // Currently the time complexity is o(n^2).
 func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Expression) (float64, []*StatsNode, error) {
 	// If table's count is zero or conditions are empty, we should return 100% selectivity.
-	if coll.Count == 0 || len(exprs) == 2 {
+	if coll.Count == 0 || len(exprs) == 0 {
 		return 1, nil, nil
 	}
 
@@ -159,7 +160,13 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return pseudoSelectivity(coll, exprs), nil, nil
 	}
 
-	//AnalyzeSample(ctx, coll, 1, false, 3, false)
+	// Just for Debug , it is triggered when ID is 47
+	// ID 47 is tbl(employees)'ID in my Mac
+	if coll.PhysicalID == 47 {
+		AnalyzeSample(ctx, coll, 1, false, 10000, false)
+		myChunk := coll.GetChunk()
+		fmt.Println(myChunk.Capacity())
+	}
 
 	ret := 1.0
 	var nodes []*StatsNode

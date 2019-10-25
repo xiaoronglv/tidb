@@ -27,6 +27,27 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
+// GetChunk splices columns to a chunk
+// For the convenience of distinction, it was written in this file
+func (coll *HistColl) GetChunk() *chunk.Chunk {
+	tps := make([]*types.FieldType, len(coll.Columns))
+	mapKey := make([]int64, len(coll.Columns))
+	for k, column := range coll.Columns {
+		tps[k-1] = &column.Info.FieldType
+		mapKey[k-1] = k
+	}
+	chunk := chunk.NewChunkWithCapacity(tps, int(coll.Count))
+	sort.Slice(mapKey, func(i, j int) bool { return mapKey[i] < mapKey[j] })
+	for i, key := range mapKey {
+		chunk.SetCol(int(i), coll.Columns[key].SampleC.SampleColumn)
+	}
+	// Just for debug --> order of the Columns
+	for _, key := range mapKey {
+		fmt.Printf("%v | ", coll.Columns[key].Info.Name.String())
+	}
+	return chunk
+}
+
 // AnalyzeSample get the sample for the place using, it is for one table
 func AnalyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool) error {
 
@@ -318,11 +339,11 @@ func (e *AnalyzeSampleExec) runTasks() ([]*SampleC, error) {
 		// fmt.Printf("-col = %v\n", i)
 
 		if i < hasPKInfo {
-			samples[i], err = e.buildICSample(e.pkInfo.ID, e.collectors[i])
+			samples[i], err = e.buildColSample(e.pkInfo.ID, e.collectors[i], true)
 		} else if i < hasPKInfo+len(e.colsInfo) {
-			samples[i], err = e.buildICSample(e.colsInfo[i-hasPKInfo].ID, e.collectors[i])
+			samples[i], err = e.buildColSample(e.colsInfo[i-hasPKInfo].ID, e.collectors[i], false)
 		} else {
-			samples[i], err = e.buildICSample(e.idxsInfo[i-hasPKInfo-len(e.colsInfo)].ID, e.collectors[i])
+			samples[i], err = e.buildIdxSample(e.idxsInfo[i-hasPKInfo-len(e.colsInfo)].ID, e.collectors[i])
 		}
 		if err != nil {
 			return nil, err
@@ -331,22 +352,70 @@ func (e *AnalyzeSampleExec) runTasks() ([]*SampleC, error) {
 	return samples, nil
 }
 
-func (e *AnalyzeSampleExec) buildICSample(colID int64, collector *SampleCollector) (*SampleC, error) {
+func (e *AnalyzeSampleExec) buildColSample(colID int64, collector *SampleCollector, isPk bool) (*SampleC, error) {
 	sc := e.ctx.GetSessionVars().StmtCtx
 	sampleItems := collector.Samples
 	err := SortSampleItems(sc, sampleItems)
 	if err != nil {
 		return nil, err
 	}
-	var cc chunk.Column
+
+	var tp types.FieldType
+	if isPk {
+		tp = e.pkInfo.FieldType
+	} else {
+		for _, colInfo := range e.colsInfo {
+			if colInfo.ID == colID {
+				tp = colInfo.FieldType
+			}
+		}
+	}
+	cc := chunk.NewColumn(&tp, int(e.sampleSize))
+
 	for i := 0; i < len(sampleItems); i++ {
-		cc.AppendBytes(sampleItems[i].Value.GetBytes())
-		fmt.Println(sampleItems[i].Value)
+		datums2ChunkColumn(sampleItems[i].Value, cc)
+		//fmt.Println(sampleItems[i].Value.GetValue())
 	}
 	return &SampleC{
 		SID:          colID,
-		SampleColumn: &cc,
+		SampleColumn: cc,
 	}, nil
+}
+
+func (e *AnalyzeSampleExec) buildIdxSample(colID int64, collector *SampleCollector) (*SampleC, error) {
+	// TODO
+	// If is a task for index, do stx datum-->chunk.colunm
+	// And return the *SampleC as result
+	return nil, nil
+}
+
+func datums2ChunkColumn(dt types.Datum, cc *chunk.Column) {
+	switch dt.Kind() {
+	case types.KindNull:
+		cc.AppendNull()
+	case types.KindInt64:
+		cc.AppendInt64(dt.GetInt64())
+	case types.KindUint64:
+		cc.AppendUint64(dt.GetUint64())
+	case types.KindFloat32:
+		cc.AppendFloat32(dt.GetFloat32())
+	case types.KindFloat64:
+		cc.AppendFloat64(dt.GetFloat64())
+	case types.KindString, types.KindBytes, types.KindBinaryLiteral, types.KindRaw, types.KindMysqlBit:
+		cc.AppendBytes(dt.GetBytes())
+	case types.KindMysqlDecimal:
+		cc.AppendMyDecimal(dt.GetMysqlDecimal())
+	case types.KindMysqlDuration:
+		cc.AppendDuration(dt.GetMysqlDuration())
+	case types.KindMysqlEnum:
+		cc.AppendEnum(dt.GetMysqlEnum())
+	case types.KindMysqlSet:
+		cc.AppendSet(dt.GetMysqlSet())
+	case types.KindMysqlTime:
+		cc.AppendTime(dt.GetMysqlTime())
+	case types.KindMysqlJSON:
+		cc.AppendJSON(dt.GetMysqlJSON())
+	}
 }
 
 //--from executor--//
