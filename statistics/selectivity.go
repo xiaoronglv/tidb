@@ -164,7 +164,7 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	// ID 47 is tbl(employees)'ID in my Mac
 	if coll.PhysicalID == 47 {
 		AnalyzeSample(ctx, coll, 1, false, 10000, false)
-		myChunk := coll.GetChunk()
+		myChunk := coll.GetChunkOfSample()
 		fmt.Println(myChunk.Capacity())
 	}
 

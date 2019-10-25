@@ -27,9 +27,9 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
-// GetChunk splices columns to a chunk
+// GetChunkOfSample splices columns to a chunk
 // For the convenience of distinction, it was written in this file
-func (coll *HistColl) GetChunk() *chunk.Chunk {
+func (coll *HistColl) GetChunkOfSample() *chunk.Chunk {
 	tps := make([]*types.FieldType, len(coll.Columns))
 	mapKey := make([]int64, len(coll.Columns))
 	for k, column := range coll.Columns {
