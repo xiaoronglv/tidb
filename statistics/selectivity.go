@@ -15,6 +15,7 @@ package statistics
 
 import (
 	"github.com/pingcap/tidb/util/chunk"
+	"fmt"
 	"math"
 
 	"github.com/pingcap/errors"
@@ -164,7 +165,13 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return pseudoSelectivity(coll, exprs), nil, nil
 	}
 
-	//AnalyzeSample(ctx, coll, 1, false, 3, false)
+	// Just for Debug , it is triggered when ID is 47
+	// ID 47 is tbl(employees)'ID in my Mac
+	if coll.PhysicalID == 47 {
+		AnalyzeSample(ctx, coll, 1, false, 10000, false)
+		myChunk := coll.GetChunk()
+		fmt.Println(myChunk.Capacity())
+	}
 
 	ret := 1.0
 	var nodes []*StatsNode
