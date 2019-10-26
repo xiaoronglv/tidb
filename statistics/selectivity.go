@@ -159,19 +159,25 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return 1, nil, nil
 	}
 
-	//if coll.IsMissing() || coll.IsStale() {
-	//	return getSelectivityBySample(ctx, exprs, coll), nil, nil
-	//}
-
+	// The following garbage code is used to exclude some system tables.
 	physicalID := coll.PhysicalID
 	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
 		TableByID(id int64) (table.Table, bool)
 	})
-	table, _ := is.TableByID(physicalID)
-	tableInfo := table.Meta()
-	if tableInfo.Name.O == "employees" || tableInfo.Name.O == "salaries" || tableInfo.Name.O == "titles" {
-		fmt.Println("I am going to dive into getSelectivityBySample3333333333333333333333333333333333333333333333333333333333")
-		fmt.Printf(" %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
+	tb, _ := is.TableByID(physicalID)
+	tableInfo := tb.Meta()
+	// end of garbage code
+
+	if (coll.IsMissing() || coll.IsStale()) && (tableInfo.Name.O == "employees" || tableInfo.Name.O == "salaries" || tableInfo.Name.O == "titles") {
+		if coll.IsMissing() {
+			fmt.Printf("The statistics of %v is missing", tableInfo.Name)
+		}
+
+		if coll.IsStale() {
+			fmt.Printf("The statistics of %v is stale", tableInfo.Name)
+		}
+
+		fmt.Printf("I am going to dive into %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
 
@@ -286,7 +292,7 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 // getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
 func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
 	var err error
-	err = AnalyzeSampleForColumns(ctx, coll, 1000000)
+	err = AnalyzeSampleForColumns(ctx, coll, 10000)
 
 	fmt.Println("I am doing well")
 	if err != nil {
