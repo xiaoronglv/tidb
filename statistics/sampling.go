@@ -107,9 +107,8 @@ func analyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 			histColl.Indices[result.Sample[0].SID].SampleC = result.Sample[0]
 		} else {
 			tableInfo := getTableInfoByID(ctx, histColl.PhysicalID)
-
 			for _, samplec := range result.Sample {
-				if histColl.Columns[samplec.SID].SampleC == nil {
+				if histColl.Columns[samplec.SID] == nil {
 					histColl.Columns[samplec.SID] = &Column{
 						SampleC:    samplec,
 						PhysicalID: histColl.PhysicalID,
