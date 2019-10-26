@@ -14,18 +14,18 @@
 package statistics
 
 import (
-	"math"
-
-	"github.com/pingcap/tidb/util/chunk"
-
 	"fmt"
+	"math"
+	"sort"
+
+	"github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/util/chunk"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/sessionctx"
-	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/ranger"
 )
@@ -154,7 +154,8 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 // Currently the time complexity is o(n^2).
 func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Expression) (float64, []*StatsNode, error) {
 	// If table's count is zero or conditions are empty, we should return 100% selectivity.
-	if coll.Count == 0 || len(exprs) <= 2 {
+
+	if coll.Count == 0 || len(exprs) == 0 {
 		return 1, nil, nil
 	}
 
@@ -168,10 +169,9 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	})
 	table, _ := is.TableByID(physicalID)
 	tableInfo := table.Meta()
-	// fmt.Printf(" %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
-
-	if tableInfo.Name.O == "employees" {
-		fmt.Println("I am going to dive into getSelectivityBySample")
+	if tableInfo.Name.O == "employees" || tableInfo.Name.O == "salaries" || tableInfo.Name.O == "titles" {
+		fmt.Println("I am going to dive into getSelectivityBySample3333333333333333333333333333333333333333333333333333333333")
+		fmt.Printf(" %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
 
@@ -286,7 +286,12 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 // getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
 func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
 	var err error
-	AnalyzeSampleForColumns(ctx, coll, 3)
+	err = AnalyzeSampleForColumns(ctx, coll, 1000000)
+
+	fmt.Println("I am doing well")
+	if err != nil {
+		return 1
+	}
 	sampleChunk := coll.GetChunkOfSample()
 	totalCount := sampleChunk.NumRows()
 
@@ -309,28 +314,31 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 
 	///////////////////////////////
 
-	// schemaColumns := []*expression.Column{}
+	schemaColumns := []*expression.Column{}
 
-	// for _, statisticColumn := range coll.Columns { // sc: statistics.Column
-	// 	 offset := statisticColumn.Info.Offset + 1
-	// 	expressionColumn := &expression.Column{
-	// 		UniqueID: int64(offset+1),
-	// 		Index: offset,
-	// 	}
-	// 	schemaColumns = append(schemaColumns, expressionColumn)
-	// }
+	for _, statisticColumn := range coll.Columns { // sc: statistics.Column
+		offset := statisticColumn.Info.Offset
+		expressionColumn := &expression.Column{
+			UniqueID: int64(offset + 1),
+			Index:    offset,
+		}
+		schemaColumns = append(schemaColumns, expressionColumn)
+	}
 
-	// schema := &expression.Schema{Columns: schemaColumns}
+	sort.Slice(schemaColumns, func(i, j int) bool {
+		return schemaColumns[i].Index < schemaColumns[j].Index
+	})
 
-	// schema := &expression.Schema{}
-	// newExprs := []expression.Expression{}
+	schema := &expression.Schema{Columns: schemaColumns}
 
-	// for _, expr := range exprs {
-	// 	newSf, _ := expr.ResolveIndices(schema)
-	// 	newExprs = append(newExprs, newSf)
-	// }
+	newExprs := []expression.Expression{}
+
+	for _, expr := range exprs {
+		newSf, _ := expr.ResolveIndices(schema)
+		newExprs = append(newExprs, newSf)
+	}
 	results := make([]bool, 0, totalCount)
-	results, err = expression.VectorizedFilter(ctx, exprs, chunk.NewIterator4Chunk(sampleChunk), results)
+	results, err = expression.VectorizedFilter(ctx, newExprs, chunk.NewIterator4Chunk(sampleChunk), results)
 	if err != nil {
 		return 1
 	}
