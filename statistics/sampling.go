@@ -113,7 +113,7 @@ func analyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 						SampleC:    samplec,
 						PhysicalID: histColl.PhysicalID,
 						Count:      histColl.Count,
-						Info:       tableInfo.Columns[samplec.SID],
+						Info:       tableInfo.Columns[samplec.SID-1],
 					}
 				} else {
 					histColl.Columns[samplec.SID].SampleC = samplec
