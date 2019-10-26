@@ -18,6 +18,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/chunk"
 
@@ -159,25 +160,18 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return 1, nil, nil
 	}
 
-	// The following garbage code is used to exclude some system tables.
 	physicalID := coll.PhysicalID
 	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
 		TableByID(id int64) (table.Table, bool)
 	})
 	tb, _ := is.TableByID(physicalID)
 	tableInfo := tb.Meta()
-	// end of garbage code
 
-	if (coll.IsMissing() || coll.IsStale()) && (tableInfo.Name.O == "employees" || tableInfo.Name.O == "salaries" || tableInfo.Name.O == "titles") {
-		if coll.IsMissing() {
-			fmt.Printf("The statistics of %v is missing", tableInfo.Name)
-		}
+	if !(tableInfo.Name.O == "employees" || tableInfo.Name.O == "salaries" || tableInfo.Name.O == "titles") {
+		return 1, nil, nil
+	}
 
-		if coll.IsStale() {
-			fmt.Printf("The statistics of %v is stale", tableInfo.Name)
-		}
-
-		fmt.Printf("I am going to dive into %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
+	if isEnabledDynamicSampling(ctx, exprs, coll) {
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
 
@@ -287,6 +281,40 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		ret *= selectionFactor
 	}
 	return ret, nodes, nil
+}
+
+// isEnabledDynamicSampling return true when query is fit in dynamic sampling
+// first, tidb_optimizer_dynamic_sampling is enabled.
+// second, statistics of involved tables are missing or stale.
+func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) bool {
+	/////////////////////////////DEBUG//////////////////////////
+	physicalID := coll.PhysicalID
+	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
+		TableByID(id int64) (table.Table, bool)
+	})
+	tb, _ := is.TableByID(physicalID)
+	tableInfo := tb.Meta()
+
+	if coll.IsMissing() {
+		fmt.Printf("The statistics of %v are missing", tableInfo.Name)
+	}
+	if coll.IsStale() {
+		fmt.Printf("The statistics of %v are stale", tableInfo.Name)
+	}
+	fmt.Printf("I am going to dive into %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
+	////////////////////////END of DEBUG//////////////////////////
+
+	// dsLevel: Dynamic Sampling Level
+	dsLevel, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSampling)
+	if err != nil {
+		return false
+	}
+
+	if dsLevel == "1" && (coll.IsMissing() || coll.IsStale()) {
+		return true
+	}
+
+	return false
 }
 
 // getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
