@@ -24,6 +24,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/sessionctx"
@@ -160,17 +161,6 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return 1, nil, nil
 	}
 
-	physicalID := coll.PhysicalID
-	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
-		TableByID(id int64) (table.Table, bool)
-	})
-	tb, _ := is.TableByID(physicalID)
-	tableInfo := tb.Meta()
-
-	if !(tableInfo.Name.O == "employees" || tableInfo.Name.O == "salaries" || tableInfo.Name.O == "titles") {
-		return 1, nil, nil
-	}
-
 	if isEnabledDynamicSampling(ctx, exprs, coll) {
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
@@ -287,13 +277,22 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 // first, tidb_optimizer_dynamic_sampling is enabled.
 // second, statistics of involved tables are missing or stale.
 func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) bool {
-	/////////////////////////////DEBUG//////////////////////////
+	// Exclude system tables
 	physicalID := coll.PhysicalID
 	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
 		TableByID(id int64) (table.Table, bool)
+		SchemaByTable(tableInfo *model.TableInfo) (val *model.DBInfo, ok bool)
 	})
 	tb, _ := is.TableByID(physicalID)
 	tableInfo := tb.Meta()
+	db, _ := is.SchemaByTable(tableInfo)
+
+	systemDBs := []string{"performance_schema", "informantion_schema", "mysql", "user"}
+	for _, systemDB := range systemDBs {
+		if db.Name.L == systemDB {
+			return false
+		}
+	}
 
 	if coll.IsMissing() {
 		fmt.Printf("The statistics of %v are missing", tableInfo.Name)
@@ -302,14 +301,15 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 		fmt.Printf("The statistics of %v are stale", tableInfo.Name)
 	}
 	fmt.Printf("I am going to dive into %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
-	////////////////////////END of DEBUG//////////////////////////
 
-	// dsLevel: Dynamic Sampling Level
+	// dsLevel stands for Dynamic Sampling Level
 	dsLevel, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSampling)
+
+	// return false when this flag is not avaiable.
 	if err != nil {
 		return false
 	}
-
+	// return true when involved table is not analyzed and dynamic sampling has been enabled.
 	if dsLevel == "1" && (coll.IsMissing() || coll.IsStale()) {
 		return true
 	}
