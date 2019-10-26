@@ -106,8 +106,19 @@ func analyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 		if result.IsIndex == 1 {
 			histColl.Indices[result.Sample[0].SID].SampleC = result.Sample[0]
 		} else {
+			tableInfo := getTableInfoByID(ctx, histColl.PhysicalID)
+
 			for _, samplec := range result.Sample {
-				histColl.Columns[samplec.SID].SampleC = samplec
+				if histColl.Columns[samplec.SID].SampleC == nil {
+					histColl.Columns[samplec.SID] = &Column{
+						SampleC:    samplec,
+						PhysicalID: histColl.PhysicalID,
+						Count:      histColl.Count,
+						Info:       tableInfo.Columns[samplec.SID],
+					}
+				} else {
+					histColl.Columns[samplec.SID].SampleC = samplec
+				}
 			}
 		}
 	}
@@ -160,13 +171,16 @@ type analyzeSampleResult struct {
 	Err             error
 }
 
-func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool, taskCh chan *analyzeSampleTask) {
-	physicalID := histColl.PhysicalID
+func getTableInfoByID(ctx sessionctx.Context, ID int64) *model.TableInfo {
 	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
 		TableByID(id int64) (table.Table, bool)
 	})
-	table, _ := is.TableByID(physicalID)
-	tableInfo := table.Meta()
+	table, _ := is.TableByID(ID)
+	return table.Meta()
+}
+
+func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID int64, isIndex bool, sampleSize uint64, fulltable bool, taskCh chan *analyzeSampleTask) {
+	tableInfo := getTableInfoByID(ctx, histColl.PhysicalID)
 	cloumsInfos := tableInfo.Columns
 	indexInfos := tableInfo.Indices
 	pkInfo := tableInfo.GetPkColInfo()
@@ -180,7 +194,7 @@ func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID
 
 	var sampleExec AnalyzeSampleExec
 	sampleExec.ctx = ctx
-	sampleExec.physicalTableID = physicalID
+	sampleExec.physicalTableID = histColl.PhysicalID
 	sampleExec.tblInfo = tableInfo
 	sampleExec.concurrency = concurrency
 	sampleExec.wg = &sync.WaitGroup{}

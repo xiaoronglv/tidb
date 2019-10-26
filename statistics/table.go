@@ -503,6 +503,7 @@ func (coll *HistColl) IsMissing() bool {
 	return false
 }
 
+// IsStale is xxx(TODO xiaoronglv)
 func (coll *HistColl) IsStale() bool {
 	if coll.Count != 0 && float64(coll.ModifyCount)/float64(coll.Count) >= 0.1 {
 		return true
@@ -510,6 +511,7 @@ func (coll *HistColl) IsStale() bool {
 
 	return false
 }
+
 const fakePhysicalID int64 = -1
 
 // PseudoTable creates a pseudo table statistics.
