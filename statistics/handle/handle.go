@@ -137,6 +137,17 @@ func DurationToTS(d time.Duration) uint64 {
 	return oracle.ComposeTS(d.Nanoseconds()/int64(time.Millisecond), 0)
 }
 
+// GetTableByPID is a needed func
+func (h *Handle) GetTableByPID(is infoschema.InfoSchema, physicalTblID int64) table.Table {
+	h.mu.Lock()
+	table, ok := h.getTableByPhysicalID(is, physicalTblID)
+	h.mu.Unlock()
+	if !ok {
+		fmt.Println("NewtY: can not finc the table by PyID")
+	}
+	return table
+}
+
 // Update reads stats meta from store and updates the stats map.
 func (h *Handle) Update(is infoschema.InfoSchema) error {
 	lastVersion := h.LastUpdateVersion()
