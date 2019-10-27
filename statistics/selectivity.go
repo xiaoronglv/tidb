@@ -320,7 +320,7 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 // getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
 func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
 	var err error
-	err = AnalyzeSampleForColumns(ctx, coll, 10000)
+	err = AnalyzeSampleForColumns(ctx, coll, 1000)
 
 	fmt.Println("I am doing well")
 	if err != nil {
