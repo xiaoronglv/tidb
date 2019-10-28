@@ -14,7 +14,6 @@
 package statistics
 
 import (
-	"fmt"
 	"math"
 	"sort"
 
@@ -277,7 +276,6 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 // first, tidb_optimizer_dynamic_sampling is enabled.
 // second, statistics of involved tables are missing or stale.
 func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) bool {
-	// Exclude system tables
 	physicalID := coll.PhysicalID
 	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
 		TableByID(id int64) (table.Table, bool)
@@ -287,6 +285,7 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 	tableInfo := tb.Meta()
 	db, _ := is.SchemaByTable(tableInfo)
 
+	// Exclude tables of system database
 	systemDBs := []string{"performance_schema", "informantion_schema", "mysql", "user"}
 	for _, systemDB := range systemDBs {
 		if db.Name.L == systemDB {
@@ -294,18 +293,8 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 		}
 	}
 
-	if coll.IsMissing() {
-		fmt.Printf("The statistics of %v are missing", tableInfo.Name)
-	}
-	if coll.IsStale() {
-		fmt.Printf("The statistics of %v are stale", tableInfo.Name)
-	}
-	fmt.Printf("I am going to dive into %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
-
 	// dsLevel stands for Dynamic Sampling Level
 	dsLevel, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSampling)
-
-	// return false when this flag is not avaiable.
 	if err != nil {
 		return false
 	}
@@ -322,7 +311,6 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 	var err error
 	err = AnalyzeSampleForColumns(ctx, coll, 1000)
 
-	fmt.Println("I am doing well")
 	if err != nil {
 		return 1
 	}
@@ -333,23 +321,8 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 		return 1
 	}
 
-	//physicalID := coll.PhysicalID
-	//is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
-	//	TableByID(id int64) (table.Table, bool)
-	//})
-	//table, _ := is.TableByID(physicalID)
-	//tableInfo := table.Meta()
-	//fmt.Printf(" %v (ID:%v)\n ", tableInfo.Name, coll.PhysicalID)
-
-	// schema := expression.TableInfo2Schema(ctx, tableInfo)
-
-	//for _, chunkColumnPtr := range sampleChunk.
-	//schema := &expression.
-
-	///////////////////////////////
 
 	schemaColumns := []*expression.Column{}
-
 	for _, statisticColumn := range coll.Columns { // sc: statistics.Column
 		offset := statisticColumn.Info.Offset
 		expressionColumn := &expression.Column{
