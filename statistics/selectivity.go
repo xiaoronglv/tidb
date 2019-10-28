@@ -287,7 +287,7 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 	db, _ := is.SchemaByTable(tableInfo)
 
 	// Exclude system tables
-	systemDBs := []string{"performance_schema", "informantion_schema", "mysql", "user"}
+	systemDBs := []string{"performance_schema", "information_schema", "mysql", "user"}
 	for _, systemDB := range systemDBs {
 		if db.Name.L == systemDB {
 			return false
