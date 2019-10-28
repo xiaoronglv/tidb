@@ -322,8 +322,7 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 		return 1
 	}
 
-
-	schemaColumns := []*expression.Column{}
+	var schemaColumns []*expression.Column
 	for _, statisticColumn := range coll.Columns { // sc: statistics.Column
 		offset := statisticColumn.Info.Offset
 		expressionColumn := &expression.Column{
