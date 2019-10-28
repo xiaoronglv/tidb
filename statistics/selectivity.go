@@ -272,9 +272,10 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	return ret, nodes, nil
 }
 
-// isEnabledDynamicSampling return true when query is fit in dynamic sampling
-// first, tidb_optimizer_dynamic_sampling is enabled.
-// second, statistics of involved tables are missing or stale.
+// isEnabledDynamicSampling returns true when following conditions are met.
+// - involved tables are not system tables.
+// - value of TiDBOptimizerDynamicSampling is "1"
+// - the statistics are missing. Those include histogram and count-min sketch.
 func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) bool {
 	physicalID := coll.PhysicalID
 	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
@@ -285,7 +286,7 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 	tableInfo := tb.Meta()
 	db, _ := is.SchemaByTable(tableInfo)
 
-	// Exclude tables of system database
+	// Exclude system tables
 	systemDBs := []string{"performance_schema", "informantion_schema", "mysql", "user"}
 	for _, systemDB := range systemDBs {
 		if db.Name.L == systemDB {
@@ -306,7 +307,7 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 	return false
 }
 
-// getSelecivityBySample randomly pick samples from table and return selectivity based on samples.
+// getSelectivityBySample randomly pick samples from table and return selectivity based on samples.
 func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
 	var err error
 	err = AnalyzeSampleForColumns(ctx, coll, 1000)
@@ -338,7 +339,7 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 
 	schema := &expression.Schema{Columns: schemaColumns}
 
-	newExprs := []expression.Expression{}
+	var newExprs []expression.Expression
 
 	for _, expr := range exprs {
 		newSf, _ := expr.ResolveIndices(schema)
