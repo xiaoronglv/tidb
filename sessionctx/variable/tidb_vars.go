@@ -263,6 +263,12 @@ const (
 	// tidb_optimizer_dynamic_sampling defines the level of dynamic sampling.
 	TiDBOptimizerDynamicSampling = "tidb_optimizer_dynamic_sampling"
 
+	// tidb_optimizer_dynamic_sampling_ttl define the cache expiration time in seconds.
+	TiDBOptimizerDynamicSamplingTTL = "tidb_optimizer_dynamic_sampling_ttl"
+
+	// tidb_optimizer_dynamic_sampling_size defines how much rows to sample.
+	TiDBOptimizerDynamicSamplingSize = "tidb_optimizer_dynamic_sampling_size"
+
 	// tidb_ddl_reorg_worker_cnt defines the count of ddl reorg workers.
 	TiDBDDLReorgWorkerCount = "tidb_ddl_reorg_worker_cnt"
 
@@ -393,7 +399,9 @@ const (
 	DefTiDBDDLErrorCountLimit          = 512
 	DefTiDBMaxDeltaSchemaCount         = 1024
 	DefTiDBHashAggPartialConcurrency   = 4
-	DefTiDBOptimizerDynamicSampling    = 0
+	DefTiDBOptimizerDynamicSampling    = 1
+	DefTiDBOptimizerDynamicSamplingTTL = 120
+	DefTiDBOptimizerDynamicSamplingSize = 1000
 	DefTiDBHashAggFinalConcurrency     = 4
 	DefTiDBForcePriority               = mysql.NoPriority
 	DefTiDBUseRadixJoin                = false

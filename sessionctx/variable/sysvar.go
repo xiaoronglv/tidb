@@ -693,6 +693,8 @@ var defaultSysVars = []*SysVar{
 	{ScopeGlobal | ScopeSession, TiDBBackoffLockFast, strconv.Itoa(kv.DefBackoffLockFast)},
 	{ScopeGlobal | ScopeSession, TiDBBackOffWeight, strconv.Itoa(kv.DefBackOffWeight)},
 	{ScopeGlobal | ScopeSession, TiDBOptimizerDynamicSampling, strconv.Itoa(DefTiDBOptimizerDynamicSampling)},
+	{ScopeGlobal | ScopeSession, TiDBOptimizerDynamicSamplingTTL, strconv.Itoa(DefTiDBOptimizerDynamicSamplingTTL)},
+	{ScopeGlobal | ScopeSession, TiDBOptimizerDynamicSamplingSize, strconv.Itoa(DefTiDBOptimizerDynamicSamplingSize)},
 	{ScopeGlobal | ScopeSession, TiDBRetryLimit, strconv.Itoa(DefTiDBRetryLimit)},
 	{ScopeGlobal | ScopeSession, TiDBDisableTxnAutoRetry, BoolToIntStr(DefTiDBDisableTxnAutoRetry)},
 	{ScopeGlobal | ScopeSession, TiDBConstraintCheckInPlace, BoolToIntStr(DefTiDBConstraintCheckInPlace)},
