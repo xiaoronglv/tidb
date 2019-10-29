@@ -3,7 +3,6 @@ package statistics
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -30,38 +29,29 @@ import (
 // GetChunkOfSample splices columns to a chunk
 // For the convenience of distinction, it was written in this file
 func (coll *HistColl) GetChunkOfSample() *chunk.Chunk {
-	tps := make([]*types.FieldType, len(coll.Columns))
-	mapKey := make([]int64, len(coll.Columns))
-	for k, column := range coll.Columns {
-		tps[k-1] = &column.Info.FieldType
-		mapKey[k-1] = k
+	var columns []*Column
+	for _, c := range coll.Columns {
+		columns = append(columns, c)
 	}
-	chunk := chunk.NewChunkWithCapacity(tps, int(coll.Count))
-	sort.Slice(mapKey, func(i, j int) bool { return mapKey[i] < mapKey[j] })
-	for i, key := range mapKey {
-		chunk.SetCol(int(i), coll.Columns[key].SampleC.SampleColumn)
+	sort.Slice(columns, func(i, j int) bool { return columns[i].Info.Offset < columns[j].Info.Offset })
+
+	var tps []*types.FieldType
+
+	for _, c := range columns {
+		tps = append(tps, &c.Info.FieldType)
 	}
 
-	// Just for debug --> order of the Columns
-	for _, key := range mapKey {
-		fmt.Printf("%v | ", coll.Columns[key].Info.Name.String())
+	chunk := chunk.NewChunkWithCapacity(tps, int(coll.Count))
+	for i, c := range columns {
+		chunk.SetCol(int(i), c.SampleC.SampleColumn)
 	}
+
 	return chunk
 }
 
 // AnalyzeSampleForColumns gets sample for all columns
 func AnalyzeSampleForColumns(ctx sessionctx.Context, histColl *HistColl, sampSize uint64) error {
 	return analyzeSample(ctx, histColl, -1, false, sampSize, false)
-}
-
-// AnalyzeSampleForIndex gets sample for one index
-func AnalyzeSampleForIndex(ctx sessionctx.Context, histColl *HistColl, sampSize uint64, idxID int64) error {
-	return analyzeSample(ctx, histColl, idxID, true, sampSize, false)
-}
-
-// AnalyzeSampleFullTable gets sample for a table, include all columns and indies
-func AnalyzeSampleFullTable(ctx sessionctx.Context, histColl *HistColl, sampSize uint64) error {
-	return analyzeSample(ctx, histColl, -1, false, sampSize, true)
 }
 
 // AnalyzeSample get the sample for the place using, it is for one table
@@ -88,7 +78,7 @@ func analyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 	buildAnalyzeSampleTask(ctx, histColl, columnID, isIndex, sampleSize, fulltable, taskCh)
 	close(taskCh)
 
-	// Get Reuslts
+	// Get Results
 	panicCnt := 0
 	for panicCnt < 1 {
 		result, ok := <-resultCh
@@ -106,17 +96,14 @@ func analyzeSample(ctx sessionctx.Context, histColl *HistColl, columnID int64, i
 		if result.IsIndex == 1 {
 			histColl.Indices[result.Sample[0].SID].SampleC = result.Sample[0]
 		} else {
-			tableInfo := getTableInfoByID(ctx, histColl.PhysicalID)
+
+		idLoop:
 			for _, samplec := range result.Sample {
-				if histColl.Columns[samplec.SID] == nil {
-					histColl.Columns[samplec.SID] = &Column{
-						SampleC:    samplec,
-						PhysicalID: histColl.PhysicalID,
-						Count:      histColl.Count,
-						Info:       tableInfo.Columns[samplec.SID-1],
+				for _, statisticsColumn := range histColl.Columns {
+					if samplec.SID == int64(statisticsColumn.Info.ID) {
+						statisticsColumn.SampleC = samplec
+						continue idLoop
 					}
-				} else {
-					histColl.Columns[samplec.SID].SampleC = samplec
 				}
 			}
 		}
@@ -185,12 +172,14 @@ func buildAnalyzeSampleTask(ctx sessionctx.Context, histColl *HistColl, columnID
 	pkInfo := tableInfo.GetPkColInfo()
 	concurrency := 1
 
+	// the following lines could be deleted.
 	if fulltable {
 		// TODO
 		// Sampling for full table
 		return
 	}
 
+	// Ryan TODO: polish the following lines
 	var sampleExec AnalyzeSampleExec
 	sampleExec.ctx = ctx
 	sampleExec.physicalTableID = histColl.PhysicalID

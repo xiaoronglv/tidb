@@ -14,12 +14,12 @@
 package statistics
 
 import (
-	"math"
-	"sort"
-
+	"fmt"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/chunk"
+	"math"
+	"sort"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
@@ -293,7 +293,7 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 			return false
 		}
 	}
-
+	// freshSample()
 	// dsLevel stands for Dynamic Sampling Level
 	dsLevel, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSampling)
 	if err != nil {
@@ -310,11 +310,29 @@ func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Express
 // getSelectivityBySample randomly pick samples from table and return selectivity based on samples.
 func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
 	var err error
+
+
+	physicalID := coll.PhysicalID
+	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
+		TableByID(id int64) (table.Table, bool)
+		SchemaByTable(tableInfo *model.TableInfo) (val *model.DBInfo, ok bool)
+	})
+	tb, _ := is.TableByID(physicalID)
+	tableInfo := tb.Meta()
+	fmt.Println(tableInfo)
+
+
+	//size, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSamplingSize)
+	//if err != nil {
+	//	size = 1000
+	//}
+
 	err = AnalyzeSampleForColumns(ctx, coll, 1000)
 
 	if err != nil {
 		return 1
 	}
+	//sampleChunk := coll.getSample()
 	sampleChunk := coll.GetChunkOfSample()
 	totalCount := sampleChunk.NumRows()
 
@@ -322,12 +340,16 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 		return 1
 	}
 
+	if tableInfo.Name.L == "dept_manager" {
+		fmt.Println("dept_manager")
+	}
+
+	// build a schema
 	var schemaColumns []*expression.Column
-	for _, statisticColumn := range coll.Columns { // sc: statistics.Column
-		offset := statisticColumn.Info.Offset
+	for uniqueID, statisticColumn := range coll.Columns { // sc: statistics.Column
 		expressionColumn := &expression.Column{
-			UniqueID: int64(offset + 1),
-			Index:    offset,
+			UniqueID: uniqueID,
+			Index:    statisticColumn.Info.Offset,
 		}
 		schemaColumns = append(schemaColumns, expressionColumn)
 	}
@@ -341,9 +363,13 @@ func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expressio
 	var newExprs []expression.Expression
 
 	for _, expr := range exprs {
+
 		newSf, _ := expr.ResolveIndices(schema)
 		newExprs = append(newExprs, newSf)
 	}
+
+
+
 	results := make([]bool, 0, totalCount)
 	results, err = expression.VectorizedFilter(ctx, newExprs, chunk.NewIterator4Chunk(sampleChunk), results)
 	if err != nil {
