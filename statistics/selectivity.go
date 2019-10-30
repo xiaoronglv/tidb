@@ -14,11 +14,15 @@
 package statistics
 
 import (
+
+	"fmt"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/ranger"
 	"math"
@@ -148,10 +152,26 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 // Currently the time complexity is o(n^2).
 func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Expression) (float64, []*StatsNode, error) {
 	// If table's count is zero or conditions are empty, we should return 100% selectivity.
+	// debug
 
+	physicalID := coll.PhysicalID
+	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
+		TableByID(id int64) (table.Table, bool)
+		SchemaByTable(tableInfo *model.TableInfo) (val *model.DBInfo, ok bool)
+	})
+	tb, _ := is.TableByID(physicalID)
+	tableInfo := tb.Meta()
+
+
+	if tableInfo.Name.L == "dept_emp_latest_date" {
+		fmt.Println("dept_emp_latest_date")
+	}
 	if coll.Count == 0 || len(exprs) == 0 {
 		return 1, nil, nil
 	}
+
+
+
 
 	if isEnabledDynamicSampling(ctx, coll) && checkSampleExistence(ctx, coll){
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
@@ -264,8 +284,6 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	}
 	return ret, nodes, nil
 }
-
-
 
 func getMaskAndRanges(ctx sessionctx.Context, exprs []expression.Expression, rangeType ranger.RangeType,
 	lengths []int, cols ...*expression.Column) (mask int64, ranges []*ranger.Range, partCover bool, err error) {

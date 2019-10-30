@@ -292,7 +292,7 @@ func prometheusPushClient(addr string, interval time.Duration) {
 	// TODO: TiDB do not have uniq name, so we use host+port to compose a name.
 	job := "tidb"
 	for {
-		var err = push.AddFromGatherer(
+		err := push.AddFromGatherer(
 			job,
 			map[string]string{"instance": instanceName()},
 			addr,
