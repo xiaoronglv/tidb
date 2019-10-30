@@ -14,21 +14,14 @@
 package statistics
 
 import (
-	"fmt"
-	"github.com/pingcap/tidb/sessionctx/variable"
-	"github.com/pingcap/tidb/table"
-	"github.com/pingcap/tidb/util/chunk"
-	"math"
-	"sort"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/ranger"
+	"math"
 )
 
 // If one condition can't be calculated, we will assume that the selectivity of this condition is 0.8.
@@ -160,7 +153,7 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 		return 1, nil, nil
 	}
 
-	if isEnabledDynamicSampling(ctx, exprs, coll) {
+	if isEnabledDynamicSampling(ctx, coll) && checkSampleExistence(ctx, coll){
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
 
@@ -272,119 +265,7 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	return ret, nodes, nil
 }
 
-// isEnabledDynamicSampling returns true when following conditions are met.
-// - involved tables are not system tables.
-// - value of TiDBOptimizerDynamicSampling is "1"
-// - the statistics are missing. Those include histogram and count-min sketch.
-func isEnabledDynamicSampling(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) bool {
-	physicalID := coll.PhysicalID
-	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
-		TableByID(id int64) (table.Table, bool)
-		SchemaByTable(tableInfo *model.TableInfo) (val *model.DBInfo, ok bool)
-	})
-	tb, _ := is.TableByID(physicalID)
-	tableInfo := tb.Meta()
-	db, _ := is.SchemaByTable(tableInfo)
 
-	// Exclude system tables
-	systemDBs := []string{"performance_schema", "information_schema", "mysql", "user"}
-	for _, systemDB := range systemDBs {
-		if db.Name.L == systemDB {
-			return false
-		}
-	}
-	// freshSample()
-	// dsLevel stands for Dynamic Sampling Level
-	dsLevel, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSampling)
-	if err != nil {
-		return false
-	}
-	// return true when involved table is not analyzed and dynamic sampling has been enabled.
-	if dsLevel == "1" && (coll.IsMissing() || coll.IsStale()) {
-		return true
-	}
-
-	return false
-}
-
-// getSelectivityBySample randomly pick samples from table and return selectivity based on samples.
-func getSelectivityBySample(ctx sessionctx.Context, exprs []expression.Expression, coll *HistColl) float64 {
-	var err error
-
-
-	physicalID := coll.PhysicalID
-	is := ctx.GetSessionVars().TxnCtx.InfoSchema.(interface {
-		TableByID(id int64) (table.Table, bool)
-		SchemaByTable(tableInfo *model.TableInfo) (val *model.DBInfo, ok bool)
-	})
-	tb, _ := is.TableByID(physicalID)
-	tableInfo := tb.Meta()
-	fmt.Println(tableInfo)
-
-
-	//size, err := variable.GetSessionSystemVar(ctx.GetSessionVars(), variable.TiDBOptimizerDynamicSamplingSize)
-	//if err != nil {
-	//	size = 1000
-	//}
-
-	err = AnalyzeSampleForColumns(ctx, coll, 1000)
-
-	if err != nil {
-		return 1
-	}
-	//sampleChunk := coll.getSample()
-	sampleChunk := coll.GetChunkOfSample()
-	totalCount := sampleChunk.NumRows()
-
-	if totalCount == 0 {
-		return 1
-	}
-
-	if tableInfo.Name.L == "dept_manager" {
-		fmt.Println("dept_manager")
-	}
-
-	// build a schema
-	var schemaColumns []*expression.Column
-	for uniqueID, statisticColumn := range coll.Columns { // sc: statistics.Column
-		expressionColumn := &expression.Column{
-			UniqueID: uniqueID,
-			Index:    statisticColumn.Info.Offset,
-		}
-		schemaColumns = append(schemaColumns, expressionColumn)
-	}
-
-	sort.Slice(schemaColumns, func(i, j int) bool {
-		return schemaColumns[i].Index < schemaColumns[j].Index
-	})
-
-	schema := &expression.Schema{Columns: schemaColumns}
-
-	var newExprs []expression.Expression
-
-	for _, expr := range exprs {
-
-		newSf, _ := expr.ResolveIndices(schema)
-		newExprs = append(newExprs, newSf)
-	}
-
-
-
-	results := make([]bool, 0, totalCount)
-	results, err = expression.VectorizedFilter(ctx, newExprs, chunk.NewIterator4Chunk(sampleChunk), results)
-	if err != nil {
-		return 1
-	}
-
-	var selectedCount float64
-	for _, result := range results {
-		if result {
-			selectedCount++
-		}
-	}
-
-	return selectedCount / float64(totalCount)
-}
 
 func getMaskAndRanges(ctx sessionctx.Context, exprs []expression.Expression, rangeType ranger.RangeType,
 	lengths []int, cols ...*expression.Column) (mask int64, ranges []*ranger.Range, partCover bool, err error) {

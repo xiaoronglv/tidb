@@ -682,13 +682,18 @@ func (e *ErrorRate) Merge(rate *ErrorRate) {
 type SampleC struct {
 	SID          int64
 	SampleColumn *chunk.Column
+	expireTime   time.Time
+	size         int64
 }
+
 
 // Column represents a column histogram.
 type Column struct {
 	Histogram
 	*SampleC //sample in one column
 	*CMSketch
+	// Samples map caches several samples in difference size. Key is sample size, value is the sample struct.
+	Samples    map[int64]*SampleC
 	PhysicalID int64
 	Count      int64
 	Info       *model.ColumnInfo
