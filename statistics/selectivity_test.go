@@ -307,22 +307,31 @@ func (s *testStatsSuite) TestSelectivity(c *C) {
 	}
 }
 
-func (s *testStatsSuite) TestSelectivity(c *C) { c *C) {
+func (s *testStatsSuite) TestGetSelectivityBySampling(c *C) {
 	defer cleanEnv(c, s.store, s.do)
 	testKit := testkit.NewTestKit(c, s.store)
 	testKit.MustExec("use test")
-	testKit.MustExec("drop table if exists t")
-	testKit.MustExec("create table t(a char(10), b int, key idx(a, b))")
+	testKit.MustExec("drop table if exists employees")
+	// disable auto analyze and enable dynamic sampling
+	testKit.MustExec("set @@global.tidb_auto_analyze_ratio = 1;")
 	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling = 1;")
-	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling = 1;")
+	testKit.MustExec("create table employees(id int, key idx(id));")
+	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling = 1;") // enable dynamic sampling.
+	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling_ttl = 300;") // s
+	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling_size = 10000;")
 
-	for i := 0; i < 499; i++ {
-		testKit.MustExec(fmt.Sprintf("insert into t values ('cn', %d)", i))
+	for i := 0; i < 10000; i++ {
+		testKit.MustExec(fmt.Sprintf("insert into employees values(%d, 'Ryan Lv')", i))
 	}
 
-
-
+	// warm up sample cache
+	testKit.MustQuery("explain select * from employees where id = 1;")
+	// explain should return pseudo stats when statistics are missing.
+	testKit.MustQuery("explain select * from employees where id = 1;").Check(testkit.Rows(
+		"IndexReader_6 10.00 root index:IndexScan_5",
+		"└─IndexScan_5 10.00 cop[tikv] table:employees, index:id, name, range:[1,1], keep order:false, stats:pseudo"))
 }
+
 // TestDiscreteDistribution tests the estimation for discrete data distribution. This is more common when the index
 // consists several columns, and the first column has small NDV.
 func (s *testStatsSuite) TestDiscreteDistribution(c *C) {
