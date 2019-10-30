@@ -16,7 +16,6 @@ package executor
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"math"
 	"math/rand"
 	"runtime"
@@ -713,7 +712,6 @@ func (e *AnalyzeFastExec) buildSampTask() (needRebuild bool, err error) {
 	sampTasksForRoutine := make([][]*AnalyzeFastTask, e.concurrency)
 	e.sampLocs = make(chan *tikv.KeyLocation, e.concurrency)
 	e.wg.Add(e.concurrency)
-	// 获取行数
 	for i := 0; i < e.concurrency; i++ {
 		go e.getSampRegionsRowCount(bo, &needRebuildForRoutine[i], &errs[i], &sampTasksForRoutine[i])
 	}
@@ -1150,7 +1148,6 @@ func (e *AnalyzeFastExec) buildStats() (hists []*statistics.Histogram, cms []*st
 	// If total row count of the table is smaller than 2*MaxSampleSize, we
 	// translate all the sample tasks to scan tasks.
 	sampleSize := e.opts[ast.AnalyzeOptNumSamples]
-	fmt.Println("rowCount = ", e.rowCount)
 	if e.rowCount < sampleSize*2 {
 		for _, task := range e.sampTasks {
 			e.scanTasks = append(e.scanTasks, task.Location)

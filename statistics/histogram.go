@@ -690,7 +690,6 @@ type SampleC struct {
 // Column represents a column histogram.
 type Column struct {
 	Histogram
-	*SampleC //sample in one column
 	*CMSketch
 	// Samples map caches several samples in difference size. Key is sample size, value is the sample struct.
 	Samples    map[int64]*SampleC
