@@ -400,7 +400,7 @@ const (
 	DefTiDBMaxDeltaSchemaCount         = 1024
 	DefTiDBHashAggPartialConcurrency   = 4
 	DefTiDBOptimizerDynamicSampling    = 1
-	DefTiDBOptimizerDynamicSamplingTTL = 300
+	DefTiDBOptimizerDynamicSamplingTTL = 60
 	DefTiDBOptimizerDynamicSamplingSize = 1000
 	DefTiDBHashAggFinalConcurrency     = 4
 	DefTiDBForcePriority               = mysql.NoPriority

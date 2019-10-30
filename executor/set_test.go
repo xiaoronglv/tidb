@@ -533,6 +533,32 @@ func (s *testSuite2) TestValidateSetVar(c *C) {
 	_, err = tk.Exec("set @@global.tidb_optimizer_dynamic_sampling='hello'")
 	c.Assert(terror.ErrorEqual(err, variable.ErrWrongTypeForVar), IsTrue)
 
+	tk.MustExec("set @@global.tidb_optimizer_dynamic_sampling_ttl=301")
+	tk.MustQuery("show warnings").Check(testutil.RowsWithSep("|", "Warning|1292|Truncated incorrect tidb_optimizer_dynamic_sampling_ttl value: '301'"))
+	result = tk.MustQuery("select @@global.tidb_optimizer_dynamic_sampling_ttl;")
+	result.Check(testkit.Rows("300"))
+
+	tk.MustExec("set @@global.tidb_optimizer_dynamic_sampling_ttl=-1")
+	tk.MustQuery("show warnings").Check(testutil.RowsWithSep("|", "Warning|1292|Truncated incorrect tidb_optimizer_dynamic_sampling_ttl value: '-1'"))
+	result = tk.MustQuery("select @@global.tidb_optimizer_dynamic_sampling_ttl;")
+	result.Check(testkit.Rows("0"))
+
+	_, err = tk.Exec("set @@global.tidb_optimizer_dynamic_sampling_ttl='hello'")
+	c.Assert(terror.ErrorEqual(err, variable.ErrWrongTypeForVar), IsTrue)
+
+	tk.MustExec("set @@global.tidb_optimizer_dynamic_sampling_size=100001")
+	tk.MustQuery("show warnings").Check(testutil.RowsWithSep("|", "Warning|1292|Truncated incorrect tidb_optimizer_dynamic_sampling_size value: '100001'"))
+	result = tk.MustQuery("select @@global.tidb_optimizer_dynamic_sampling_size;")
+	result.Check(testkit.Rows("10000"))
+
+	tk.MustExec("set @@global.tidb_optimizer_dynamic_sampling_size=-1")
+	tk.MustQuery("show warnings").Check(testutil.RowsWithSep("|", "Warning|1292|Truncated incorrect tidb_optimizer_dynamic_sampling_size value: '-1'"))
+	result = tk.MustQuery("select @@global.tidb_optimizer_dynamic_sampling_size;")
+	result.Check(testkit.Rows("0"))
+
+	_, err = tk.Exec("set @@global.tidb_optimizer_dynamic_sampling_size='hello'")
+	c.Assert(terror.ErrorEqual(err, variable.ErrWrongTypeForVar), IsTrue)
+
 	tk.MustExec("set @@global.max_allowed_packet=-1")
 	tk.MustQuery("show warnings").Check(testutil.RowsWithSep("|", "Warning|1292|Truncated incorrect max_allowed_packet value: '-1'"))
 	result = tk.MustQuery("select @@global.max_allowed_packet;")

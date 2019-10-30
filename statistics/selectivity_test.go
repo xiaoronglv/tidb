@@ -307,6 +307,22 @@ func (s *testStatsSuite) TestSelectivity(c *C) {
 	}
 }
 
+func (s *testStatsSuite) TestSelectivity(c *C) { c *C) {
+	defer cleanEnv(c, s.store, s.do)
+	testKit := testkit.NewTestKit(c, s.store)
+	testKit.MustExec("use test")
+	testKit.MustExec("drop table if exists t")
+	testKit.MustExec("create table t(a char(10), b int, key idx(a, b))")
+	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling = 1;")
+	testKit.MustExec("set @@session.tidb_optimizer_dynamic_sampling = 1;")
+
+	for i := 0; i < 499; i++ {
+		testKit.MustExec(fmt.Sprintf("insert into t values ('cn', %d)", i))
+	}
+
+
+
+}
 // TestDiscreteDistribution tests the estimation for discrete data distribution. This is more common when the index
 // consists several columns, and the first column has small NDV.
 func (s *testStatsSuite) TestDiscreteDistribution(c *C) {

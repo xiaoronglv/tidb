@@ -151,7 +151,7 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	if coll.Count == 0 || len(exprs) == 0 {
 		return 1, nil, nil
 	}
-	
+
 	if isEnabledDynamicSampling(ctx, coll) && checkSampleExistence(ctx, coll){
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
