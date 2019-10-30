@@ -143,14 +143,13 @@ func (coll *HistColl) getSampleChunk(size int64) *chunk.Chunk {
 	return sampleChunk
 }
 
-
 // checkSampleExistence returns true when all samples are existent and fresh.
 func checkSampleExistence(ctx sessionctx.Context, coll *HistColl) bool {
 	size := getSampleSize(ctx)
 	for _, column := range coll.Columns {
 		sample, ok := column.Samples[size]
 		// return false if any sample doesn't exist or expired.
-		if !(ok && sample != nil && sample.expireTime.After(time.Now())) {
+		if !ok || sample == nil || sample.expireTime.Before(time.Now()){
 			_ = analyzeSample(ctx, coll, -1, false, uint64(size), false)
 			return false
 		}

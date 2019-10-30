@@ -148,11 +148,10 @@ func isColEqCorCol(filter expression.Expression) *expression.Column {
 // Currently the time complexity is o(n^2).
 func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Expression) (float64, []*StatsNode, error) {
 	// If table's count is zero or conditions are empty, we should return 100% selectivity.
-
 	if coll.Count == 0 || len(exprs) == 0 {
 		return 1, nil, nil
 	}
-
+	
 	if isEnabledDynamicSampling(ctx, coll) && checkSampleExistence(ctx, coll){
 		return getSelectivityBySample(ctx, exprs, coll), nil, nil
 	}
@@ -264,8 +263,6 @@ func (coll *HistColl) Selectivity(ctx sessionctx.Context, exprs []expression.Exp
 	}
 	return ret, nodes, nil
 }
-
-
 
 func getMaskAndRanges(ctx sessionctx.Context, exprs []expression.Expression, rangeType ranger.RangeType,
 	lengths []int, cols ...*expression.Column) (mask int64, ranges []*ranger.Range, partCover bool, err error) {
