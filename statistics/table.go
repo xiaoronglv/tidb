@@ -503,12 +503,11 @@ func (coll *HistColl) IsMissing() bool {
 	return false
 }
 
-// IsStale is xxx(TODO xiaoronglv)
+// IsStale returns true when more than 10% rows has been updated.
 func (coll *HistColl) IsStale() bool {
 	if coll.Count != 0 && float64(coll.ModifyCount)/float64(coll.Count) >= 0.1 {
 		return true
 	}
-
 	return false
 }
 
